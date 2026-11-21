@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Download, Printer, Users, UserRound, UsersRound, Home } from 'lucide-react';
+import { Download, Printer, RotateCcw, Users, UserRound, UsersRound, Home } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/StatusBlock';
@@ -57,6 +57,9 @@ export function StatisticsScreen() {
     t('statistics.halfBoysColumn'),
     t('statistics.halfGirlsColumn'),
     t('statistics.halfBoardersColumn'),
+    t('statistics.repeaterBoysColumn'),
+    t('statistics.repeaterGirlsColumn'),
+    t('statistics.repeatersColumn'),
   ];
 
   const buildReportRows = (): (string | number)[][] => {
@@ -73,6 +76,9 @@ export function StatisticsScreen() {
         group.subtotal.halfBoarders.boys,
         group.subtotal.halfBoarders.girls,
         group.subtotal.halfBoarders.total,
+        group.subtotal.repeaters.boys,
+        group.subtotal.repeaters.girls,
+        group.subtotal.repeaters.total,
       ]);
     }
     rows.push([
@@ -83,6 +89,9 @@ export function StatisticsScreen() {
       totals.halfBoarders.boys,
       totals.halfBoarders.girls,
       totals.halfBoarders.total,
+      totals.repeaters.boys,
+      totals.repeaters.girls,
+      totals.repeaters.total,
     ]);
     return rows;
   };
@@ -142,11 +151,17 @@ export function StatisticsScreen() {
             {isHead ? t('statistics.institutionTotals') : t('statistics.scopeTotals')}
           </p>
 
-          <section className="grid grid-cols-2 gap-3">
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard icon={<Users className="size-5" aria-hidden />} label={t('statistics.summaryStudents')} value={totals.students.total} tone="primary" />
             <SummaryCard icon={<UserRound className="size-5" aria-hidden />} label={t('statistics.summaryBoys')} value={totals.students.boys} tone="secondary" />
             <SummaryCard icon={<UsersRound className="size-5" aria-hidden />} label={t('statistics.summaryGirls')} value={totals.students.girls} tone="accent" />
             <SummaryCard icon={<Home className="size-5" aria-hidden />} label={t('statistics.summaryHalfBoarders')} value={totals.halfBoarders.total} tone="success" />
+          </section>
+
+          <section className="grid grid-cols-3 gap-3">
+            <SummaryCard icon={<RotateCcw className="size-5" aria-hidden />} label={t('statistics.summaryRepeaters')} value={totals.repeaters.total} tone="warning" />
+            <SummaryCard icon={<UserRound className="size-5" aria-hidden />} label={t('statistics.summaryRepeaterBoys')} value={totals.repeaters.boys} tone="secondary" />
+            <SummaryCard icon={<UsersRound className="size-5" aria-hidden />} label={t('statistics.summaryRepeaterGirls')} value={totals.repeaters.girls} tone="accent" />
           </section>
 
           <div className="flex flex-wrap gap-2">
@@ -184,11 +199,11 @@ export function StatisticsScreen() {
                   </span>
                 </div>
                 <div className="overflow-x-auto rounded-2xl bg-white ring-1 ring-neutral-200">
-                  <table className="w-full min-w-[40rem] text-sm">
+                  <table className="w-full min-w-[54rem] text-sm">
                     <thead className="bg-neutral-50 text-neutral-600">
                       <tr>
                         {reportHeaders.map((header, index) => (
-                          <th key={header} className={`px-4 py-3 font-semibold ${index === 0 ? 'text-start' : 'text-end'}`}>
+                          <th key={header} className={`px-3 py-3 font-semibold ${index === 0 ? 'text-start' : 'text-end'}`}>
                             {header}
                           </th>
                         ))}
@@ -198,20 +213,23 @@ export function StatisticsScreen() {
                       {group.classes.map((row) => (
                         <tr key={row.classId} className="transition hover:bg-neutral-50">
                           {statRowValues(row.name, row).map((value, index) => (
-                            <td key={index} className={`px-4 py-3 text-neutral-900 ${index === 0 ? 'font-medium text-start' : 'text-end tabular-nums'}`}>
+                            <td key={index} className={`px-3 py-3 text-neutral-900 ${index === 0 ? 'font-medium text-start' : 'text-end tabular-nums'}`}>
                               {value}
                             </td>
                           ))}
                         </tr>
                       ))}
                       <tr className="border-t-2 border-neutral-200 bg-neutral-50 font-bold text-neutral-900">
-                        <td className="px-4 py-3 text-start">{t('statistics.sublevelTotal', { level: group.label })}</td>
-                        <td className="px-4 py-3 text-end tabular-nums">{group.subtotal.students.boys}</td>
-                        <td className="px-4 py-3 text-end tabular-nums">{group.subtotal.students.girls}</td>
-                        <td className="px-4 py-3 text-end tabular-nums">{group.subtotal.students.total}</td>
-                        <td className="px-4 py-3 text-end tabular-nums">{group.subtotal.halfBoarders.boys}</td>
-                        <td className="px-4 py-3 text-end tabular-nums">{group.subtotal.halfBoarders.girls}</td>
-                        <td className="px-4 py-3 text-end tabular-nums">{group.subtotal.halfBoarders.total}</td>
+                        <td className="px-3 py-3 text-start">{t('statistics.sublevelTotal', { level: group.label })}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.students.boys}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.students.girls}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.students.total}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.halfBoarders.boys}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.halfBoarders.girls}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.halfBoarders.total}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.repeaters.boys}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.repeaters.girls}</td>
+                        <td className="px-3 py-3 text-end tabular-nums">{group.subtotal.repeaters.total}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -221,16 +239,19 @@ export function StatisticsScreen() {
 
             {filteredGroups.length > 0 && (
               <div className="overflow-x-auto rounded-2xl bg-primary-50 ring-1 ring-primary-200">
-                <table className="w-full min-w-[40rem] text-sm font-bold text-neutral-900">
+                <table className="w-full min-w-[54rem] text-sm font-bold text-neutral-900">
                   <tbody>
                     <tr>
-                      <td className="px-4 py-3 text-start">{t('statistics.grandTotal')}</td>
-                      <td className="px-4 py-3 text-end tabular-nums">{totals.students.boys}</td>
-                      <td className="px-4 py-3 text-end tabular-nums">{totals.students.girls}</td>
-                      <td className="px-4 py-3 text-end tabular-nums">{totals.students.total}</td>
-                      <td className="px-4 py-3 text-end tabular-nums">{totals.halfBoarders.boys}</td>
-                      <td className="px-4 py-3 text-end tabular-nums">{totals.halfBoarders.girls}</td>
-                      <td className="px-4 py-3 text-end tabular-nums">{totals.halfBoarders.total}</td>
+                      <td className="px-3 py-3 text-start">{t('statistics.grandTotal')}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.students.boys}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.students.girls}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.students.total}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.halfBoarders.boys}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.halfBoarders.girls}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.halfBoarders.total}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.repeaters.boys}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.repeaters.girls}</td>
+                      <td className="px-3 py-3 text-end tabular-nums">{totals.repeaters.total}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -273,7 +294,12 @@ function levelLabel(level: number | null, t: (key: string, opts?: Record<string,
 }
 
 function statRowValues(name: string, row: ClassStatistics): (string | number)[] {
-  return [name, ...countValues(row.students), ...countValues(row.halfBoarders).slice(0, 0), row.halfBoarders.boys, row.halfBoarders.girls, row.halfBoarders.total];
+  return [
+    name,
+    ...countValues(row.students),
+    ...countValues(row.halfBoarders),
+    ...countValues(row.repeaters),
+  ];
 }
 
 function countValues(counts: GenderCounts): number[] {
@@ -285,6 +311,7 @@ const TONE_CLASSES = {
   secondary: 'bg-secondary-50 text-secondary-700',
   accent: 'bg-accent-50 text-accent-700',
   success: 'bg-success-50 text-success-700',
+  warning: 'bg-warning-50 text-warning-700',
 } as const;
 
 function SummaryCard({

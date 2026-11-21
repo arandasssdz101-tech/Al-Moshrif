@@ -13,6 +13,7 @@ export interface ClassStatistics {
   level: number | null;
   students: GenderCounts;
   halfBoarders: GenderCounts;
+  repeaters: GenderCounts;
 }
 
 function emptyCounts(): GenderCounts {
@@ -37,20 +38,24 @@ export function buildClassStatistics(classes: SchoolClass[], students: Student[]
       level: classLevelOf(schoolClass),
       students: emptyCounts(),
       halfBoarders: emptyCounts(),
+      repeaters: emptyCounts(),
     };
     for (const student of students) {
       if (student.classId !== schoolClass.id || !isStudentActive(student, today)) continue;
       addStudent(stats.students, student);
       if (student.boardingStatus === 'half-boarder') addStudent(stats.halfBoarders, student);
+      if (student.repeater) addStudent(stats.repeaters, student);
     }
     return stats;
   });
 }
 
-export function sumClassStatistics(rows: ClassStatistics[]): Pick<ClassStatistics, 'students' | 'halfBoarders'> {
-  const totals = { students: emptyCounts(), halfBoarders: emptyCounts() };
+export function sumClassStatistics(
+  rows: ClassStatistics[],
+): Pick<ClassStatistics, 'students' | 'halfBoarders' | 'repeaters'> {
+  const totals = { students: emptyCounts(), halfBoarders: emptyCounts(), repeaters: emptyCounts() };
   for (const row of rows) {
-    for (const group of ['students', 'halfBoarders'] as const) {
+    for (const group of ['students', 'halfBoarders', 'repeaters'] as const) {
       totals[group].boys += row[group].boys;
       totals[group].girls += row[group].girls;
       totals[group].total += row[group].total;

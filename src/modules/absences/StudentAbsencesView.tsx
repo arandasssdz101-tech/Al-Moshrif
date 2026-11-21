@@ -215,7 +215,7 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
               }`}
             >
               <span
-                className={`inline-block size-5 transform rounded-full bg-white shadow transition-transform ${
+                className={`inline-block size-5 transform rounded-full bg-[#ffffff] shadow transition-transform ${
                   cardAbsenceEnabled ? 'ltr:translate-x-6 rtl:-translate-x-6' : 'ltr:translate-x-1 rtl:-translate-x-1'
                 }`}
               />
@@ -478,7 +478,7 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
                           >
                             <span className="font-bold">{periodStartHour(lesson.period)}</span>
                             <span>{isAbsent ? t('absences.absent') : t('absences.present')}</span>
-                            {entry?.justified ? <span className="absolute end-1 top-1 size-1.5 rounded-full bg-white" title={t('absences.justified')} aria-label={t('absences.justified')} /> : null}
+                            {entry?.justified ? <span className="absolute end-1 top-1 size-1.5 rounded-full bg-[#ffffff]" title={t('absences.justified')} aria-label={t('absences.justified')} /> : null}
                           </button>
                         </div>
                       );

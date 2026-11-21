@@ -8,6 +8,7 @@ interface StatisticsChartsProps {
 export function StatisticsCharts({ rows }: StatisticsChartsProps) {
   const { t } = useTranslation();
   const maxStudents = Math.max(1, ...rows.map((row) => row.students.total));
+  const maxRepeaters = Math.max(1, ...rows.map((row) => row.repeaters.total));
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -37,8 +38,33 @@ export function StatisticsCharts({ rows }: StatisticsChartsProps) {
           const pct = (row.halfBoarders.total / maxStudents) * 100;
           return (
             <BarRow key={row.classId} label={row.name} value={row.halfBoarders.total}>
-              <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-100">
+              <div className="flex h-3 w-full overflow-hidden rounded-full bg-neutral-100">
                 <div className="h-full rounded-full bg-primary-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+              </div>
+            </BarRow>
+          );
+        })}
+      </ChartCard>
+
+      <ChartCard title={t('statistics.chartRepeatersTitle')} className="sm:col-span-2">
+        <Legend
+          items={[
+            { label: t('statistics.summaryRepeaterBoys'), className: 'bg-secondary-500' },
+            { label: t('statistics.summaryRepeaterGirls'), className: 'bg-accent-500' },
+          ]}
+        />
+        {rows.map((row) => {
+          const boysPct = (row.repeaters.boys / maxRepeaters) * 100;
+          const girlsPct = (row.repeaters.girls / maxRepeaters) * 100;
+          return (
+            <BarRow
+              key={row.classId}
+              label={row.name}
+              value={`${row.repeaters.total} (${row.repeaters.boys} / ${row.repeaters.girls})`}
+            >
+              <div className="flex h-3 w-full overflow-hidden rounded-full bg-neutral-100">
+                <div className="h-full bg-secondary-500 transition-all duration-500" style={{ width: `${boysPct}%` }} />
+                <div className="h-full bg-accent-500 transition-all duration-500" style={{ width: `${girlsPct}%` }} />
               </div>
             </BarRow>
           );
@@ -48,21 +74,39 @@ export function StatisticsCharts({ rows }: StatisticsChartsProps) {
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({
+  title,
+  children,
+  className = '',
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <section className="flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-neutral-200">
+    <section
+      className={`flex flex-col gap-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-neutral-200 ${className}`.trim()}
+    >
       <h2 className="text-base font-bold text-neutral-900">{title}</h2>
       <div className="flex flex-col gap-3">{children}</div>
     </section>
   );
 }
 
-function BarRow({ label, value, children }: { label: string; value: number; children: React.ReactNode }) {
+function BarRow({
+  label,
+  value,
+  children,
+}: {
+  label: string;
+  value: number | string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="truncate font-medium text-neutral-700">{label}</span>
-        <span className="font-semibold text-neutral-900">{value}</span>
+        <span className="font-semibold tabular-nums text-neutral-900">{value}</span>
       </div>
       {children}
     </div>

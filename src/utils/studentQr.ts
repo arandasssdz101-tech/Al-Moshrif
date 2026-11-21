@@ -26,8 +26,31 @@ const REGIME_LABELS_AR: Record<string, string> = {
   external: 'خارجي',
 };
 
+const GENDER_LABELS_AR: Record<string, string> = {
+  male: 'ذكر',
+  female: 'أنثى',
+};
+
 export function formatStudentRegime(status: ExtendedRegime | string): string {
   return REGIME_LABELS_AR[status] ?? status;
+}
+
+export function formatStudentGender(gender: Student['gender'] | string): string {
+  return GENDER_LABELS_AR[gender] ?? gender;
+}
+
+export function formatCardBirthDate(dateOfBirth: string | null | undefined): string {
+  const cleaned = dateOfBirth?.trim() ?? '';
+  if (!cleaned) return '—';
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(cleaned);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  }
+  return cleaned;
+}
+
+export function formatCardBirthPlace(placeOfBirth: string | null | undefined): string {
+  return placeOfBirth?.trim() || '—';
 }
 
 export function studentFullName(student: Pick<Student, 'firstName' | 'lastName'>): string {
@@ -65,6 +88,70 @@ export function buildStudentQrForRecord(
     regime: formatStudentRegime(student.boardingStatus),
     schoolYear,
   });
+}
+
+const AZERTY_DIGIT_MAP: Record<string, string> = {
+  '&': '1',
+  'é': '2',
+  'É': '2',
+  '"': '3',
+  "'": '4',
+  '(': '5',
+  '-': '6',
+  'è': '7',
+  'È': '7',
+  '_': '8',
+  'ç': '9',
+  'Ç': '9',
+  'à': '0',
+  'À': '0',
+};
+
+const AZERTY_ONLY_PATTERN = /^[&éÉ"'(\-èÈ_çÇàÀ]+$/;
+
+export interface NormalizeScanOptions {
+  convertAzertyDigits?: boolean;
+}
+
+function stripControlChars(input: string): string {
+  let out = '';
+  for (let i = 0; i < input.length; i += 1) {
+    const code = input.charCodeAt(i);
+    if (
+      code <= 0x1f ||
+      code === 0x7f ||
+      (code >= 0x200b && code <= 0x200f) ||
+      (code >= 0x202a && code <= 0x202e) ||
+      code === 0xfeff
+    ) {
+      continue;
+    }
+    out += input[i];
+  }
+  return out;
+}
+
+export function normalizeScannedCode(rawText: string, options: NormalizeScanOptions = {}): string {
+  const { convertAzertyDigits = true } = options;
+
+  // 1. Remove ASCII control chars (including \r, \n, \t) & invisible Unicode control/format chars, then trim
+  let cleaned = stripControlChars(rawText).trim();
+
+  if (!cleaned) return '';
+
+  // 2. Convert Arabic-Indic (٠-٩) and Extended Arabic-Indic (۰-۹) digits to Latin (0-9)
+  cleaned = cleaned
+    .replace(/[\u0660-\u0669]/g, (ch) => String(ch.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (ch) => String(ch.charCodeAt(0) - 0x06f0));
+
+  // 3. Optional French AZERTY reader fix: only when entire string consists of AZERTY top-row symbols
+  if (convertAzertyDigits && AZERTY_ONLY_PATTERN.test(cleaned)) {
+    cleaned = Array.from(cleaned)
+      .map((ch) => AZERTY_DIGIT_MAP[ch] ?? ch)
+      .join('');
+  }
+
+  return cleaned;
 }
 
 export function parseStudentQrPayload(rawText: string): ParsedStudentQr | null {

@@ -1,5 +1,5 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react';
-import { ArrowUpDown, CheckSquare, FileDown, LayoutGrid, Printer, QrCode, ScanLine, Search, Square, Users } from 'lucide-react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ArrowUpDown, CheckSquare, FileDown, LayoutGrid, Printer, ScanLine, Search, Square, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -11,6 +11,7 @@ import type { Student } from '@/db/types';
 import { useSession } from '@/modules/auth/AuthContext';
 import { CardScanner } from '@/modules/canteen/CardScanner';
 import { playScanFeedback } from '@/modules/canteen/scanFeedback';
+import { HardwareScannerBox, type LastScanDiagnostic } from '@/modules/cards/HardwareScannerBox';
 import { ScannedStudentSheet } from '@/modules/cards/ScannedStudentSheet';
 import { StudentIdCard } from '@/modules/cards/StudentIdCard';
 import { todayIso } from '@/utils/dates';
@@ -27,7 +28,13 @@ import {
   type PrintableStudentCard,
 } from '@/utils/studentCardsPrint';
 import { downloadStudentCardsPdf } from '@/utils/studentCardsPdf';
-import { matchStudentFromScan, studentRegistrationNumber } from '@/utils/studentQr';
+import {
+  buildStudentQrForRecord,
+  matchStudentFromScan,
+  normalizeScannedCode,
+  studentFullName,
+  studentRegistrationNumber,
+} from '@/utils/studentQr';
 import { normalizeText } from '@/utils/text';
 import { useAsyncData } from '@/utils/useAsyncData';
 
@@ -49,13 +56,13 @@ export function StudentCardsScreen() {
   const [query, setQuery] = useState('');
   const [schoolYear, setSchoolYear] = useState(() => schoolYearForDate(today));
   const [cameraOpen, setCameraOpen] = useState(false);
-  const [scanInput, setScanInput] = useState('');
   const [scanError, setScanError] = useState<string | null>(null);
+  const [lastDiagnostic, setLastDiagnostic] = useState<LastScanDiagnostic | null>(null);
   const [printing, setPrinting] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [activeStudent, setActiveStudent] = useState<Student | null>(null);
   const [scannedContext, setScannedContext] = useState<{ student: Student; code: string } | null>(null);
-  const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
 
   const data = workspace.data;
   const classes = useMemo(() => data?.classes ?? [], [data]);
@@ -111,26 +118,52 @@ export function StudentCardsScreen() {
     setSelectedIds(new Set());
   };
 
-  const handleResolveScan = (rawText: string) => {
-    const cleaned = rawText.trim();
-    if (!cleaned) return;
-    setScanError(null);
-    const matched = matchStudentFromScan(data?.students ?? [], cleaned, institution.canteenMatchField);
-    if (!matched) {
-      playScanFeedback('error');
-      setScanError(t('cards.scanner.notFound', { code: cleaned.slice(0, 60) }));
-      return;
-    }
-    playScanFeedback('success');
-    setCameraOpen(false);
-    setScanInput('');
-    setScannedContext({ student: matched, code: cleaned });
-  };
+  const handleResolveScan = useCallback(
+    (rawText: string, preNormalized?: string) => {
+      const normalized = preNormalized ?? normalizeScannedCode(rawText);
+      if (!normalized) return;
+      setScanError(null);
+      const matched = matchStudentFromScan(data?.students ?? [], normalized, institution.canteenMatchField);
+      if (!matched) {
+        playScanFeedback('error');
+        setLastDiagnostic({
+          raw: rawText,
+          normalized,
+          length: rawText.length,
+          found: false,
+        });
+        setScanError(t('cards.scanner.notFound', { code: normalized.slice(0, 60) }));
+        return;
+      }
+      playScanFeedback('success');
+      setLastDiagnostic({
+        raw: rawText,
+        normalized,
+        length: rawText.length,
+        found: true,
+        studentName: studentFullName(matched),
+      });
+      setCameraOpen(false);
+      setScannedContext({ student: matched, code: normalized });
+    },
+    [data?.students, institution.canteenMatchField, t],
+  );
 
-  const handleHardwareScanSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    handleResolveScan(scanInput);
-  };
+  const handleSimulateTestScan = useCallback(
+    (convertAzertyDigits: boolean) => {
+      const sample = visibleStudents[0] ?? students[0] ?? null;
+      const simulatedRaw = sample
+        ? `${buildStudentQrForRecord(
+            sample,
+            classNameById.get(sample.classId) ?? t('students.unknownClass'),
+            yearLabel,
+          )}\r\n`
+        : 'TEST-0001\r\n';
+      const normalized = normalizeScannedCode(simulatedRaw, { convertAzertyDigits });
+      handleResolveScan(simulatedRaw, normalized);
+    },
+    [classNameById, handleResolveScan, students, t, visibleStudents, yearLabel],
+  );
 
   const handleToggleCardAbsence = async () => {
     if (user.role !== 'head' || togglingCardAbsence) return;
@@ -210,7 +243,7 @@ export function StudentCardsScreen() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div ref={screenRef} className="flex flex-col gap-6">
       <header className="flex flex-col gap-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-3xl text-neutral-900">{t('cards.title')}</h1>
@@ -253,60 +286,46 @@ export function StudentCardsScreen() {
       </header>
 
       {/* USB / Bluetooth Hardware QR Scanner + Quick Paste Bar + Card Absence Toggle */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4">
-        <form onSubmit={handleHardwareScanSubmit} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <QrCode className="size-5 shrink-0 text-primary-700" aria-hidden />
-            <input
-              ref={scanInputRef}
-              type="text"
-              value={scanInput}
-              onChange={(event) => {
-                setScanInput(event.target.value);
-                if (scanError) setScanError(null);
-              }}
-              placeholder={t('cards.hardwareScannerPlaceholder')}
-              aria-label={t('cards.hardwareScannerPlaceholder')}
-              className="min-h-11 w-full bg-transparent text-sm text-neutral-900 placeholder:text-neutral-400 focus:outline-none"
-            />
-          </div>
-          <Button type="submit" variant="secondary" disabled={!scanInput.trim()}>
-            {t('cards.lookupCode')}
-          </Button>
-        </form>
-
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-neutral-100 pt-3">
-          <div className="flex items-center gap-2 text-xs">
-            <span className="font-semibold text-neutral-700">{t('absences.cardAbsence.title')}:</span>
-            <span
-              className={`rounded-md px-2 py-0.5 font-semibold ${
-                cardAbsenceEnabled ? 'bg-success-50 text-success-700' : 'bg-neutral-100 text-neutral-600'
-              }`}
-            >
-              {cardAbsenceEnabled ? t('absences.cardAbsence.enabled') : t('absences.cardAbsence.disabled')}
-            </span>
-          </div>
-          {user.role === 'head' ? (
-            <button
-              type="button"
-              role="switch"
-              aria-checked={cardAbsenceEnabled}
-              aria-label={t('absences.cardAbsence.toggleLabel')}
-              disabled={togglingCardAbsence}
-              onClick={() => void handleToggleCardAbsence()}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 ${
-                cardAbsenceEnabled ? 'bg-primary-600' : 'bg-neutral-300'
-              }`}
-            >
+      <HardwareScannerBox
+        paused={cameraOpen || scannedContext !== null || activeStudent !== null}
+        screenRef={screenRef}
+        onScanSubmit={(raw, normalized) => handleResolveScan(raw, normalized)}
+        onSimulateTestScan={handleSimulateTestScan}
+        lastDiagnostic={lastDiagnostic}
+        footer={
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-semibold text-neutral-700">{t('absences.cardAbsence.title')}:</span>
               <span
-                className={`inline-block size-4 transform rounded-full bg-white shadow transition-transform ${
-                  cardAbsenceEnabled ? 'ltr:translate-x-6 rtl:-translate-x-6' : 'ltr:translate-x-1 rtl:-translate-x-1'
+                className={`rounded-md px-2 py-0.5 font-semibold ${
+                  cardAbsenceEnabled ? 'bg-success-50 text-success-700' : 'bg-neutral-100 text-neutral-600'
                 }`}
-              />
-            </button>
-          ) : null}
-        </div>
-      </div>
+              >
+                {cardAbsenceEnabled ? t('absences.cardAbsence.enabled') : t('absences.cardAbsence.disabled')}
+              </span>
+            </div>
+            {user.role === 'head' ? (
+              <button
+                type="button"
+                role="switch"
+                aria-checked={cardAbsenceEnabled}
+                aria-label={t('absences.cardAbsence.toggleLabel')}
+                disabled={togglingCardAbsence}
+                onClick={() => void handleToggleCardAbsence()}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:opacity-50 ${
+                  cardAbsenceEnabled ? 'bg-primary-600' : 'bg-neutral-300'
+                }`}
+              >
+                <span
+                  className={`inline-block size-4 transform rounded-full bg-[#ffffff] shadow transition-transform ${
+                    cardAbsenceEnabled ? 'ltr:translate-x-6 rtl:-translate-x-6' : 'ltr:translate-x-1 rtl:-translate-x-1'
+                  }`}
+                />
+              </button>
+            ) : null}
+          </div>
+        }
+      />
 
       <FormError message={scanError} />
 
@@ -495,7 +514,7 @@ export function StudentCardsScreen() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                 {visibleStudents.map((student) => {
                   const classNameLabel = classNameById.get(student.classId) ?? t('students.unknownClass');
                   return (
@@ -621,11 +640,8 @@ export function StudentCardsScreen() {
       {cameraOpen ? (
         <CardScanner
           paused={scannedContext !== null}
-          onDetect={handleResolveScan}
-          onManual={() => {
-            setCameraOpen(false);
-            setTimeout(() => scanInputRef.current?.focus(), 50);
-          }}
+          onDetect={(code) => handleResolveScan(code)}
+          onManual={() => setCameraOpen(false)}
           onClose={() => setCameraOpen(false)}
         />
       ) : null}

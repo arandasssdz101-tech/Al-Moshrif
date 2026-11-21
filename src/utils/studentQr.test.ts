@@ -14,13 +14,18 @@ import {
   chunkCardsForA4,
   requiredA4Pages,
   sortStudentsForCards,
+  toPrintableCard,
 } from '@/utils/studentCardsPrint';
 import {
   buildStudentQrForRecord,
   buildStudentQrPayload,
+  formatCardBirthDate,
+  formatCardBirthPlace,
+  formatStudentGender,
   formatStudentRegime,
   generateStudentQrSvg,
   matchStudentFromScan,
+  normalizeScannedCode,
   parseStudentQrPayload,
 } from '@/utils/studentQr';
 
@@ -186,5 +191,46 @@ describe('Student ID & QR Cards utilities', () => {
     expect(isCardAbsenceEnabled({ cardAbsenceEnabled: undefined })).toBe(true);
     expect(isCardAbsenceEnabled({ cardAbsenceEnabled: true })).toBe(true);
     expect(isCardAbsenceEnabled({ cardAbsenceEnabled: false })).toBe(false);
+  });
+
+  it('normalizes scanned text: trims, strips control chars/newlines, converts Arabic-Indic digits, and handles optional French AZERTY digits', () => {
+    expect(normalizeScannedCode('  \u0000\tREG-٢٠٢٦-٠٠١\r\n ')).toBe('REG-2026-001');
+    expect(normalizeScannedCode('۰۱۲۳۴۵۶۷۸۹')).toBe('0123456789');
+
+    // French AZERTY top-row symbols-only string converts to 1234567890 by default
+    expect(normalizeScannedCode('&é"\'(-è_çà\r\n')).toBe('1234567890');
+    expect(normalizeScannedCode('&é"\'(-è_çà', { convertAzertyDigits: false })).toBe('&é"\'(-è_çà');
+
+    // Structured QR payloads containing hyphens must NOT be altered by AZERTY digit conversion
+    const structured = 'ID:stu-101|NAME:أحمد بن سالم|CLASS:1م1|REGIME:نصف داخلي|YEAR:2026/2025';
+    expect(normalizeScannedCode(` ${structured}\r\n`)).toBe(structured);
+  });
+
+  it('includes gender, date of birth, and place of birth on printable cards', async () => {
+    expect(formatStudentGender('male')).toBe('ذكر');
+    expect(formatStudentGender('female')).toBe('أنثى');
+    expect(formatCardBirthDate('2013-04-10')).toBe('10/04/2013');
+    expect(formatCardBirthDate(null)).toBe('—');
+    expect(formatCardBirthPlace('العفرون')).toBe('العفرون');
+    expect(formatCardBirthPlace('')).toBe('—');
+
+    const student = makeStudent({ gender: 'female', dateOfBirth: '2012-11-05', placeOfBirth: 'البليدة' });
+    const card = toPrintableCard(student, '4م3', 'متوسطة بولعراس رابح', '2026/2025');
+    expect(card.genderLabel).toBe('أنثى');
+    expect(card.dateOfBirth).toBe('05/11/2012');
+    expect(card.placeOfBirth).toBe('البليدة');
+
+    const html = await buildPrintableStudentCardsHtml([card], 'بطاقة تلميذ', 'ar', 10);
+    expect(html).toContain('الجنس:');
+    expect(html).toContain('أنثى');
+    expect(html).toContain('تاريخ الميلاد:');
+    expect(html).toContain('05/11/2012');
+    expect(html).toContain('مكان الميلاد:');
+    expect(html).toContain('البليدة');
+    expect(html).toContain('وزارة التربية الوطنية');
+    expect(html).toContain('الجمهورية الجزائرية الديمقراطية الشعبية');
+    expect(html).toContain('id-card-photo');
+    expect(html).toContain('id-card-map');
+    expect(html).toContain('id-card-qr-bezel');
   });
 });

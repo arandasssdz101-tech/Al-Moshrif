@@ -5,6 +5,7 @@ import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { Button } from '@/components/ui/Button';
 import { useSession } from '@/modules/auth/AuthContext';
 import { AccountSection } from './AccountSection';
+import { AppearanceSection } from './AppearanceSection';
 import { InstitutionSettingsScreen } from './InstitutionSettingsScreen';
 
 type SettingsView = 'main' | 'institution';
@@ -42,6 +43,8 @@ function SettingsMain({ onOpenInstitution }: { onOpenInstitution: () => void }) 
           <span className="text-sm font-medium text-primary-700">{roleLabel}</span>
         </div>
       </section>
+
+      <AppearanceSection />
 
       <section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-neutral-200">
         <LanguageSwitch />

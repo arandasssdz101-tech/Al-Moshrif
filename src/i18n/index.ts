@@ -16,6 +16,7 @@ function readInitialLanguage(): AppLanguage {
 function applyDocumentLanguage(language: string): void {
   document.documentElement.lang = language;
   document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr';
+  document.title = i18n.t('app.name');
 }
 
 export function setAppLanguage(language: AppLanguage): void {

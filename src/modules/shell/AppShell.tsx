@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { AppLogo } from '@/components/AppLogo';
 import { BottomTabs, type TabItem } from '@/components/BottomTabs';
 import { LanguageToggle } from '@/components/LanguageToggle';
+import { PWAInstallButton } from '@/components/PWAInstallButton';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { AbsencesScreen } from '@/modules/absences/AbsencesScreen';
 import { useSession } from '@/modules/auth/AuthContext';
 import { StudentCardsScreen } from '@/modules/cards/StudentCardsScreen';
@@ -49,7 +51,11 @@ export function AppShell() {
               <span className="truncate text-base font-bold text-neutral-900">{institution.name}</span>
             </div>
           </div>
-          <LanguageToggle />
+          <div className="flex shrink-0 items-center gap-2">
+            <PWAInstallButton />
+            <ThemeToggle />
+            <LanguageToggle />
+          </div>
         </div>
       </header>
 

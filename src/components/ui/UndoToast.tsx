@@ -22,7 +22,7 @@ export function UndoToast({ message, onUndo, onExpire }: UndoToastProps) {
   return (
     <div
       role="status"
-      className="fixed inset-x-4 bottom-28 z-40 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl bg-neutral-900 px-5 py-4 text-white shadow-xl animate-fade-up"
+      className="fixed inset-x-4 bottom-28 z-40 mx-auto flex max-w-md items-center justify-between gap-4 rounded-2xl bg-slate-900 px-5 py-4 text-white shadow-xl animate-fade-up dark:bg-slate-800 dark:ring-1 dark:ring-slate-700"
     >
       <p className="text-sm font-medium">{message}</p>
       <button

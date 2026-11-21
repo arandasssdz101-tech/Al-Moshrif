@@ -3,7 +3,20 @@ import { esc } from '@/utils/dailyReportHtml';
 import { downloadBlob } from '@/utils/download';
 import { isNativeApp } from '@/utils/platform';
 import {
+  ALGERIA_FLAG_SVG,
+  ALGERIA_MAP_WATERMARK_URL,
+  CARD_TITLE_AR,
+  GUILLOCHE_BG_SVG,
+  MINISTRY_EMBLEM_SVG,
+  MINISTRY_NAME_AR,
+  REPUBLIC_NAME_AR,
+  STUDENT_PHOTO_PLACEHOLDER_SVG,
+} from '@/utils/studentCardArtwork';
+import {
   buildStudentQrForRecord,
+  formatCardBirthDate,
+  formatCardBirthPlace,
+  formatStudentGender,
   formatStudentRegime,
   generateStudentQrSvg,
   studentFullName,
@@ -20,6 +33,9 @@ export interface PrintableStudentCard {
   schoolYear: string;
   fullName: string;
   className: string;
+  genderLabel?: string;
+  dateOfBirth?: string;
+  placeOfBirth?: string;
   registrationNumber: string;
   regimeLabel: string;
   qrPayload: string;
@@ -68,6 +84,9 @@ export function toPrintableCard(
     schoolYear,
     fullName: studentFullName(student),
     className: classNameLabel,
+    genderLabel: formatStudentGender(student.gender),
+    dateOfBirth: formatCardBirthDate(student.dateOfBirth),
+    placeOfBirth: formatCardBirthPlace(student.placeOfBirth),
     registrationNumber: studentRegistrationNumber(student),
     regimeLabel: formatStudentRegime(student.boardingStatus),
     qrPayload: buildStudentQrForRecord(student, classNameLabel, schoolYear),
@@ -83,7 +102,7 @@ html, body {
   margin: 0;
   padding: 0;
   background: #ffffff;
-  color: #000000;
+  color: #16201a;
   font-family: Cairo, Arial, sans-serif;
   direction: rtl;
   -webkit-print-color-adjust: exact;
@@ -124,138 +143,289 @@ html, body {
   display: flex;
 }
 .id-card {
+  position: relative;
   width: 100%;
   height: 100%;
-  border: 0.9pt solid #0f172a;
+  border: 0.65pt solid #8a978c;
   border-radius: 2mm;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  background: #ffffff;
-  color: #000000;
+  background: linear-gradient(180deg, #e9eee9 0%, #f5f7f4 16%, #f3f6f2 84%, #e3e9e3 100%);
+  color: #16201a;
   break-inside: avoid;
   page-break-inside: avoid;
 }
-/* Economical ink-saving header: white background + crisp dark text & hairline rule */
+/* Top Metallic Sage-Silver Header Band */
 .id-card-header {
-  background: #ffffff;
-  color: #000000;
-  border-bottom: 1pt solid #0f172a;
-  padding: 1.4mm 2.6mm;
+  position: relative;
+  z-index: 2;
+  background: linear-gradient(90deg, #b7c2b8 0%, #d4ddd5 26%, #e4e9e4 54%, #ccd6cd 82%, #bac6bb 100%);
+  border-bottom: 0.65pt solid #7f8c81;
+  box-shadow: inset 0 0.4pt 0 rgba(255, 255, 255, 0.7);
+  padding: 1.1mm 2.2mm;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 2mm;
+  gap: 1.4mm;
+  height: 10.4mm;
 }
 .id-card-inst {
-  font-size: 7.8pt;
-  font-weight: 700;
-  line-height: 1.2;
+  max-width: 22%;
+  font-size: 6.4pt;
+  font-weight: 800;
+  color: #1a241e;
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.id-card-year {
-  font-size: 7pt;
+.id-card-ministry {
+  display: flex;
+  align-items: center;
+  gap: 1.1mm;
+  flex-shrink: 0;
+}
+.id-card-ministry-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.05;
+}
+.id-card-ministry-top {
+  display: flex;
+  align-items: center;
+  gap: 0.8mm;
+}
+.id-card-flag {
+  width: 3.1mm;
+  height: 2.1mm;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.id-card-flag svg { width: 100%; height: 100%; display: block; }
+.id-card-rep-mini {
+  font-size: 3.7pt;
   font-weight: 700;
+  color: #253129;
+  white-space: nowrap;
+}
+.id-card-ministry-name {
+  font-size: 5.8pt;
+  font-weight: 800;
+  color: #141e18;
+  margin-top: 0.35mm;
+  white-space: nowrap;
+}
+.id-card-emblem {
+  width: 6.4mm;
+  height: 5.6mm;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.id-card-emblem svg { width: 100%; height: 100%; display: block; }
+.id-card-title {
+  font-size: 8.6pt;
+  font-weight: 800;
+  color: #141e18;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.id-card-year {
+  font-size: 6.6pt;
+  font-weight: 800;
+  color: #1e2923;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
 }
-.id-card-sub {
-  border-bottom: 0.5pt solid #cbd5e1;
-  color: #0f172a;
-  font-size: 6.8pt;
-  font-weight: 700;
-  text-align: center;
-  padding: 0.5mm 2mm;
-  background: #ffffff;
-}
+/* Body with Guilloche Security Curves & Algeria Map Watermark */
 .id-card-body {
+  position: relative;
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 2.2mm;
-  padding: 1.8mm 2.6mm;
-  background: #ffffff;
+  gap: 2mm;
+  padding: 1.4mm 2.2mm;
+  overflow: hidden;
+}
+.id-card-guilloche {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.id-card-guilloche svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.id-card-map {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 0;
+}
+.id-card-map img {
+  height: 95%;
+  width: auto;
+  display: block;
+  object-fit: contain;
 }
 .id-card-info {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.9mm;
+  gap: 0.45mm;
+}
+.id-card-top-person {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.6mm;
+  margin-bottom: 0.4mm;
+}
+.id-card-photo {
+  width: 10.2mm;
+  height: 11.8mm;
+  border: 0.45pt solid #616e64;
+  background: #ffffff;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.id-card-photo svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 .id-card-name {
-  font-size: 9.2pt;
-  font-weight: 700;
-  color: #000000;
-  line-height: 1.2;
-  margin-bottom: 0.4mm;
+  flex: 1;
+  min-width: 0;
+  font-size: 8.2pt;
+  font-weight: 800;
+  color: #141d17;
+  line-height: 1.15;
+  padding-bottom: 0.6mm;
   word-break: break-word;
 }
 .id-card-row {
   display: flex;
   align-items: baseline;
-  gap: 1.2mm;
-  font-size: 7.4pt;
-  line-height: 1.25;
+  gap: 0.8mm;
+  font-size: 6.1pt;
+  line-height: 1.18;
+}
+.id-card-row--pair {
+  gap: 2.0mm;
+}
+.id-card-pair-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.7mm;
+  min-width: 0;
 }
 .id-card-label {
-  color: #334155;
-  font-weight: 600;
+  color: #2d3a32;
+  font-weight: 700;
   white-space: nowrap;
 }
 .id-card-val {
-  color: #000000;
-  font-weight: 700;
+  color: #111814;
+  font-weight: 800;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.id-card-qr {
+/* Metallic Beveled Champagne-Silver QR Frame */
+.id-card-qr-bezel {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
-  background: #ffffff;
-  border: 0.5pt solid #94a3b8;
-  border-radius: 1.2mm;
-  padding: 0.6mm;
+  border-radius: 2mm;
+  padding: 1.15mm;
+  background: linear-gradient(145deg, #dbd7cb 0%, #8f8b7e 34%, #e8e5da 68%, #9d998b 100%);
+  border: 0.45pt solid #6c695e;
+  box-shadow: 0 0.8mm 1.8mm rgba(26, 36, 30, 0.22);
   display: flex;
   align-items: center;
   justify-content: center;
 }
-.qr-sheet--10 .id-card-qr {
-  width: 28mm;
-  height: 28mm;
+.id-card-qr {
+  background: #ffffff;
+  border-radius: 1.1mm;
+  border: 0.35pt solid #b4b0a4;
+  padding: 0.5mm;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
 }
-.qr-sheet--8 .id-card-qr {
-  width: 34mm;
-  height: 34mm;
+.qr-sheet--10 .id-card-qr-bezel {
+  width: 27.5mm;
+  height: 27.5mm;
+}
+.qr-sheet--8 .id-card-header {
+  height: 11.8mm;
+  padding: 1.3mm 2.5mm;
+}
+.qr-sheet--8 .id-card-inst { font-size: 7.2pt; }
+.qr-sheet--8 .id-card-rep-mini { font-size: 4.1pt; }
+.qr-sheet--8 .id-card-ministry-name { font-size: 6.4pt; }
+.qr-sheet--8 .id-card-emblem { width: 7.2mm; height: 6.3mm; }
+.qr-sheet--8 .id-card-title { font-size: 9.6pt; }
+.qr-sheet--8 .id-card-year { font-size: 7.4pt; }
+.qr-sheet--8 .id-card-qr-bezel {
+  width: 33.5mm;
+  height: 33.5mm;
+  padding: 1.3mm;
+}
+.qr-sheet--8 .id-card-photo {
+  width: 12.2mm;
+  height: 14.2mm;
+}
+.qr-sheet--8 .id-card-info {
+  gap: 0.7mm;
 }
 .qr-sheet--8 .id-card-name {
-  font-size: 10.2pt;
+  font-size: 9.4pt;
 }
 .qr-sheet--8 .id-card-row {
-  font-size: 8pt;
-  gap: 1.5mm;
+  font-size: 7.0pt;
+  gap: 1.0mm;
 }
-.qr-sheet--8 .id-card-inst {
-  font-size: 8.4pt;
+.qr-sheet--8 .id-card-footer {
+  height: 5.8mm;
+  font-size: 6.4pt;
 }
 .id-card-qr svg {
   width: 100%;
   height: 100%;
   display: block;
 }
+/* Bottom Metallic Sage-Silver Footer Band */
 .id-card-footer {
-  border-top: 0.5pt solid #cbd5e1;
-  padding: 0.7mm 2.6mm;
-  font-size: 6pt;
-  color: #334155;
+  position: relative;
+  z-index: 2;
+  height: 5.1mm;
+  border-top: 0.65pt solid #7f8c81;
+  background: linear-gradient(90deg, #b7c2b8 0%, #d4ddd5 28%, #e2e7e2 58%, #c7d1c8 100%);
+  box-shadow: inset 0 0.4pt 0 rgba(255, 255, 255, 0.55);
+  padding: 0 2.4mm;
+  font-size: 5.8pt;
+  font-weight: 800;
+  color: #1a241e;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: #ffffff;
+  gap: 2mm;
 }
 @media print {
   header, nav, button, .no-print { display: none !important; }
@@ -289,15 +459,44 @@ export async function buildPrintableStudentCardsHtml(
   <article class="id-card">
     <div class="id-card-header">
       <div class="id-card-inst">${esc(card.institutionName)}</div>
+      <div class="id-card-ministry">
+        <div class="id-card-ministry-text">
+          <div class="id-card-ministry-top">
+            <span class="id-card-flag">${ALGERIA_FLAG_SVG}</span>
+            <span class="id-card-rep-mini">${REPUBLIC_NAME_AR}</span>
+          </div>
+          <span class="id-card-ministry-name">${MINISTRY_NAME_AR}</span>
+        </div>
+        <span class="id-card-emblem">${MINISTRY_EMBLEM_SVG}</span>
+      </div>
+      <div class="id-card-title">${CARD_TITLE_AR}</div>
       <div class="id-card-year" dir="ltr">${esc(card.schoolYear)}</div>
     </div>
-    <div class="id-card-sub">بطاقة التلميذ</div>
     <div class="id-card-body">
+      <div class="id-card-guilloche" aria-hidden="true">${GUILLOCHE_BG_SVG}</div>
+      <div class="id-card-map" aria-hidden="true"><img src="${ALGERIA_MAP_WATERMARK_URL}" alt="" /></div>
       <div class="id-card-info">
-        <div class="id-card-name">${esc(card.fullName)}</div>
+        <div class="id-card-top-person">
+          <div class="id-card-photo" aria-hidden="true">${STUDENT_PHOTO_PLACEHOLDER_SVG}</div>
+          <div class="id-card-name">${esc(card.fullName)}</div>
+        </div>
+        <div class="id-card-row id-card-row--pair">
+          <span class="id-card-pair-item">
+            <span class="id-card-label">القسم:</span>
+            <span class="id-card-val">${esc(card.className)}</span>
+          </span>
+          <span class="id-card-pair-item">
+            <span class="id-card-label">الجنس:</span>
+            <span class="id-card-val">${esc(card.genderLabel ?? '—')}</span>
+          </span>
+        </div>
         <div class="id-card-row">
-          <span class="id-card-label">القسم:</span>
-          <span class="id-card-val">${esc(card.className)}</span>
+          <span class="id-card-label">تاريخ الميلاد:</span>
+          <span class="id-card-val" dir="ltr">${esc(card.dateOfBirth ?? '—')}</span>
+        </div>
+        <div class="id-card-row">
+          <span class="id-card-label">مكان الميلاد:</span>
+          <span class="id-card-val">${esc(card.placeOfBirth ?? '—')}</span>
         </div>
         <div class="id-card-row">
           <span class="id-card-label">النظام:</span>
@@ -308,10 +507,12 @@ export async function buildPrintableStudentCardsHtml(
           <span class="id-card-val" dir="ltr">${esc(card.registrationNumber)}</span>
         </div>
       </div>
-      <div class="id-card-qr" aria-label="QR">${qrSvg}</div>
+      <div class="id-card-qr-bezel" aria-label="QR">
+        <div class="id-card-qr">${qrSvg}</div>
+      </div>
     </div>
     <div class="id-card-footer">
-      <span>${esc(card.directorate ?? '')}</span>
+      <span>${REPUBLIC_NAME_AR}</span>
       <span dir="ltr">${esc(card.schoolYear)}</span>
     </div>
   </article>

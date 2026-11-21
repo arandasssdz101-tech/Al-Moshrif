@@ -12,7 +12,7 @@ export function AppLogo({ size = 'md' }: AppLogoProps) {
   const { box } = SIZE_CLASSES[size];
   return (
     <div className={`shrink-0 overflow-hidden shadow-lg shadow-primary-600/25 ${box}`}>
-      <img src="/assets/school-app-icon_(1).png" alt="" className="size-full object-cover" />
+      <img src="/icons/school-app-icon.png" alt="" referrerPolicy="no-referrer" className="size-full object-cover" />
     </div>
   );
 }

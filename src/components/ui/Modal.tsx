@@ -33,7 +33,7 @@ export function Modal({ open, title, description, onClose, children }: ModalProp
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[90] bg-neutral-900/40 backdrop-blur-sm animate-fade-in" onClick={onClose} />
+      <div className="fixed inset-0 z-[90] bg-slate-950/50 backdrop-blur-sm animate-fade-in dark:bg-slate-950/75" onClick={onClose} />
       <div className="pointer-events-none fixed inset-x-0 bottom-0 z-[100] flex justify-center sm:inset-0 sm:items-center sm:p-6">
         <div
           role="dialog"

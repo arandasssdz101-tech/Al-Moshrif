@@ -691,7 +691,7 @@ function buildPage2Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRend
 
 export function buildDailyReportWorkbook(render: DailyReportRender): ExcelJS.Workbook {
   const workbook = new ExcelJS.Workbook();
-  workbook.creator = render.header.institution || 'School Admin';
+  workbook.creator = render.header.institution || 'الإشراف التربوي';
   workbook.created = new Date();
   buildPage1Worksheet(workbook, render);
   buildPage2Worksheet(workbook, render);
