@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChartBar as BarChart3, CalendarDays, ClipboardList, GraduationCap, Home, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
+import { ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, GraduationCap, Home, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppLogo } from '@/components/AppLogo';
 import { BottomTabs, type TabItem } from '@/components/BottomTabs';
@@ -17,8 +17,9 @@ import { SupervisorsScreen } from '@/modules/supervisors/SupervisorsScreen';
 import { TimetableScreen } from '@/modules/timetable/TimetableScreen';
 import { SearchScreen } from '@/modules/search/SearchScreen';
 import { CanteenScreen } from '@/modules/canteen/CanteenScreen';
+import { LibraryScreen } from '@/modules/library/LibraryScreen';
 
-export type TabId = 'home' | 'students' | 'cards' | 'timetable' | 'absences' | 'canteen' | 'statistics' | 'supervisors' | 'settings' | 'search';
+export type TabId = 'home' | 'students' | 'cards' | 'timetable' | 'absences' | 'canteen' | 'statistics' | 'library' | 'supervisors' | 'settings' | 'search';
 
 export function AppShell() {
   const { t } = useTranslation();
@@ -35,6 +36,7 @@ export function AppShell() {
     { id: 'absences', label: t('nav.absences'), icon: ClipboardList },
     ...(hasCanteen ? [{ id: 'canteen' as const, label: t('nav.canteen'), icon: Utensils }] : []),
     { id: 'statistics', label: t('nav.statistics'), icon: BarChart3 },
+    { id: 'library', label: t('nav.library'), icon: BookOpen },
     { id: 'search', label: t('nav.search'), icon: Search },
     ...(isHead ? [{ id: 'supervisors' as const, label: t('nav.supervisors'), icon: Users }] : []),
     { id: 'settings', label: t('nav.settings'), icon: Settings },
@@ -67,6 +69,7 @@ export function AppShell() {
         {tab === 'absences' ? <AbsencesScreen /> : null}
         {tab === 'canteen' && hasCanteen ? <CanteenScreen /> : null}
         {tab === 'statistics' ? <StatisticsScreen /> : null}
+        {tab === 'library' ? <LibraryScreen /> : null}
         {tab === 'search' ? <SearchScreen /> : null}
         {tab === 'supervisors' && isHead ? <SupervisorsScreen /> : null}
         {tab === 'settings' ? <SettingsScreen /> : null}

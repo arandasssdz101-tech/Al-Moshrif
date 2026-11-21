@@ -3,6 +3,8 @@ import type {
   CanteenEntry,
   DailyReportRecord,
   Institution,
+  LibraryFile,
+  LibraryMeta,
   Room,
   SchoolClass,
   Student,
@@ -37,6 +39,8 @@ class SchoolDatabase extends Dexie {
   outbox!: Table<OutboxEntry, string>;
   dailyReports!: Table<DailyReportRecord, string>;
   canteenEntries!: Table<CanteenEntry, string>;
+  libraryMeta!: Table<LibraryMeta, string>;
+  libraryFiles!: Table<LibraryFile, string>;
 
   constructor() {
     super('school-admin');
@@ -69,6 +73,14 @@ class SchoolDatabase extends Dexie {
     this.version(8).stores({
       students: 'id, institutionId, classId, cardCode',
     });
+    this.version(9)
+      .stores({
+        libraryMeta: 'id, category, addedAt, lastOpenedAt, favorite, builtIn, hidden',
+        libraryFiles: 'id, hash',
+      })
+      .upgrade(() => {
+        // Non-destructive upgrade: existing tables and records remain intact.
+      });
   }
 }
 

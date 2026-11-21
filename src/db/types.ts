@@ -37,6 +37,7 @@ export interface Institution extends BaseRecord {
   canteenDays?: number[];
   canteenTrackingStart?: string | null;
   cardAbsenceEnabled?: boolean;
+  librarySupervisorsCanManage?: boolean;
 }
 
 export const MODULE_IDS = ['students', 'attendance', 'timetable', 'grades', 'reports', 'canteen'] as const;
@@ -212,3 +213,34 @@ export interface DailyReportRecord {
   teacherNotes: Record<string, string>;
   updatedAt: string;
 }
+
+export const LIBRARY_CATEGORIES = ['guides', 'laws', 'circulars', 'forms', 'other'] as const;
+export type LibraryCategory = (typeof LIBRARY_CATEGORIES)[number];
+
+export interface LibraryMeta {
+  id: string;
+  title: string;
+  category: LibraryCategory;
+  pages: number | null;
+  size: number;
+  addedAt: string;
+  lastOpenedAt: string | null;
+  favorite: boolean;
+  builtIn: boolean;
+  hidden: boolean;
+  lastPage: number;
+  lastZoom: number;
+  mime: string;
+  fileName: string;
+  assetPath?: string | null;
+  thumbnail?: string | null;
+}
+
+export interface LibraryFile {
+  id: string;
+  blob: Blob;
+  mime: string;
+  size: number;
+  hash: string;
+}
+

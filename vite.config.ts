@@ -18,6 +18,8 @@ export default defineConfig({
         'pwa-512x512.png',
         'pwa-maskable-512x512.png',
         'icons/school-app-icon.png',
+        'library/field-guide-educational-duty.pdf',
+        'library/law-08-04.pdf',
       ],
       manifest: {
         id: '/',
@@ -51,8 +53,21 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,woff,woff2,pdf}'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/pdfjs/'),
+            handler: 'CacheFirst',
+            options: {
+              cacheName: 'pdfjs-static-assets',
+              expiration: {
+                maxEntries: 250,
+                maxAgeSeconds: 60 * 60 * 24 * 365,
+              },
+            },
+          },
+        ],
       },
       devOptions: {
         enabled: true,

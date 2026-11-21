@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { isCardAbsenceEnabled, updateInstitutionSettings } from '@/db/institutions';
+import { canSupervisorsManageLibrary, isCardAbsenceEnabled, updateInstitutionSettings } from '@/db/institutions';
 import { SubpageHeader } from '@/components/SubpageHeader';
 import { Button } from '@/components/ui/Button';
 import { FormError } from '@/components/ui/StatusBlock';
@@ -33,6 +33,7 @@ interface InstitutionForm {
   canteenMatchField: CanteenMatchField;
   canteenTrackingStart: string;
   cardAbsenceEnabled: boolean;
+  librarySupervisorsCanManage: boolean;
 }
 
 interface FormErrors {
@@ -59,6 +60,7 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
     canteenMatchField: institution.canteenMatchField ?? 'cardCode',
     canteenTrackingStart: institution.canteenTrackingStart ?? '',
     cardAbsenceEnabled: isCardAbsenceEnabled(institution),
+    librarySupervisorsCanManage: canSupervisorsManageLibrary(institution),
   }));
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -114,6 +116,7 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
           canteenMatchField: form.canteenMatchField,
           canteenTrackingStart: form.canteenTrackingStart || null,
           cardAbsenceEnabled: form.cardAbsenceEnabled,
+          librarySupervisorsCanManage: form.librarySupervisorsCanManage,
         },
         user.id,
       );
@@ -246,6 +249,23 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
               onChange={(value) => {
                 setSaved(false);
                 setForm((previous) => ({ ...previous, cardAbsenceEnabled: value === 'enabled' }));
+              }}
+            />
+          </div>
+        </Section>
+
+        <Section title={t('institution.librarySection')} hint={t('institution.libraryHint')}>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-neutral-700">{t('institution.libraryManageLabel')}</span>
+            <SegmentedControl<'headOnly' | 'allSupervisors'>
+              options={[
+                { id: 'headOnly', label: t('institution.libraryHeadOnly') },
+                { id: 'allSupervisors', label: t('institution.libraryAllSupervisors') },
+              ]}
+              value={form.librarySupervisorsCanManage ? 'allSupervisors' : 'headOnly'}
+              onChange={(value) => {
+                setSaved(false);
+                setForm((previous) => ({ ...previous, librarySupervisorsCanManage: value === 'allSupervisors' }));
               }}
             />
           </div>

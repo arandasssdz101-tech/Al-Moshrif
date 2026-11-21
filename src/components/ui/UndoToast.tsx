@@ -7,17 +7,18 @@ interface UndoToastProps {
   message: string;
   onUndo: () => void;
   onExpire: () => void;
+  durationMs?: number;
 }
 
-export function UndoToast({ message, onUndo, onExpire }: UndoToastProps) {
+export function UndoToast({ message, onUndo, onExpire, durationMs = UNDO_WINDOW_MS }: UndoToastProps) {
   const { t } = useTranslation();
   const expireRef = useRef(onExpire);
   expireRef.current = onExpire;
 
   useEffect(() => {
-    const timer = window.setTimeout(() => expireRef.current(), UNDO_WINDOW_MS);
+    const timer = window.setTimeout(() => expireRef.current(), durationMs);
     return () => window.clearTimeout(timer);
-  }, []);
+  }, [durationMs]);
 
   return (
     <div

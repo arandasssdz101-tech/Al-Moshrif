@@ -15,11 +15,12 @@ export function BackupCard() {
   const [error, setError] = useState<string | null>(null);
   const [pendingRestore, setPendingRestore] = useState<BackupData | null>(null);
   const [restoring, setRestoring] = useState(false);
+  const [includeLibrary, setIncludeLibrary] = useState(false);
 
   const handleExport = async () => {
     setError(null);
     try {
-      const json = await exportBackup();
+      const json = await exportBackup({ includeLibrary });
       const date = new Date().toISOString().slice(0, 10);
       await downloadBlob(new Blob([json], { type: 'application/json' }), `school-admin-backup-${date}.json`);
     } catch (exportError) {
@@ -58,6 +59,18 @@ export function BackupCard() {
 
   return (
     <div className="flex flex-col gap-3">
+      <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-neutral-200 bg-neutral-50 px-3.5 py-2.5 text-sm text-neutral-700">
+        <input
+          type="checkbox"
+          checked={includeLibrary}
+          onChange={(event) => setIncludeLibrary(event.target.checked)}
+          className="mt-0.5 size-4 shrink-0 rounded border-neutral-300 accent-primary-600"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="font-medium text-neutral-800">{t('institution.includeLibraryBackup')}</span>
+          <span className="text-xs text-neutral-500">{t('institution.includeLibraryBackupHint')}</span>
+        </span>
+      </label>
       <Button variant="secondary" fullWidth onClick={handleExport} icon={<Download className="size-5" aria-hidden />}>
         {t('institution.exportBackup')}
       </Button>

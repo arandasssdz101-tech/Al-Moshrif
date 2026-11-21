@@ -30,10 +30,17 @@ export interface InstitutionSettingsInput {
   canteenMatchField: CanteenMatchField;
   canteenTrackingStart: string | null;
   cardAbsenceEnabled?: boolean;
+  librarySupervisorsCanManage?: boolean;
 }
 
 export function isCardAbsenceEnabled(institution: Pick<Institution, 'cardAbsenceEnabled'>): boolean {
   return institution.cardAbsenceEnabled !== false;
+}
+
+export function canSupervisorsManageLibrary(
+  institution: Pick<Institution, 'librarySupervisorsCanManage'>,
+): boolean {
+  return institution.librarySupervisorsCanManage === true;
 }
 
 export async function updateInstitutionSettings(
@@ -59,6 +66,8 @@ export async function updateInstitutionSettings(
     absenceThresholdType: input.absenceThresholdType,
     absenceThresholdValue: input.absenceThresholdValue,
     cardAbsenceEnabled: input.cardAbsenceEnabled ?? institution.cardAbsenceEnabled ?? true,
+    librarySupervisorsCanManage:
+      input.librarySupervisorsCanManage ?? institution.librarySupervisorsCanManage ?? false,
     ...touchFields(actorId),
   });
 }
