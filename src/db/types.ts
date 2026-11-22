@@ -38,9 +38,16 @@ export interface Institution extends BaseRecord {
   canteenTrackingStart?: string | null;
   cardAbsenceEnabled?: boolean;
   librarySupervisorsCanManage?: boolean;
+  entryStartTime?: string;
+  entryLateAfterMinutes?: number;
+  entryUseFirstTimetableLesson?: boolean;
+  entrySoundEnabled?: boolean;
+  entryVibrationEnabled?: boolean;
+  entryCooldownSeconds?: number;
+  entryMarkLateMissedLessons?: boolean;
 }
 
-export const MODULE_IDS = ['students', 'attendance', 'timetable', 'grades', 'reports', 'canteen'] as const;
+export const MODULE_IDS = ['students', 'attendance', 'timetable', 'grades', 'reports', 'canteen', 'entry'] as const;
 export type ModuleId = (typeof MODULE_IDS)[number];
 export type AccessLevel = 'edit' | 'view';
 export type SearchScope = 'assigned' | 'institution';
@@ -242,5 +249,35 @@ export interface LibraryFile {
   mime: string;
   size: number;
   hash: string;
+}
+
+export const ENTRY_RESULTS = ['accepted', 'duplicate', 'unknown', 'left', 'holiday'] as const;
+export type EntryResult = (typeof ENTRY_RESULTS)[number];
+
+export const ENTRY_SOURCES = ['camera', 'usb', 'manual'] as const;
+export type EntrySource = (typeof ENTRY_SOURCES)[number];
+
+export interface GateEntry extends BaseRecord {
+  studentId: string | null;
+  scannedCode: string;
+  date: string;
+  time: string;
+  result: EntryResult;
+  late: boolean;
+  minutesLate: number;
+  source: EntrySource;
+  supervisorId: string | null;
+  deviceId: string;
+}
+
+export interface EntryDayClosure {
+  id: string;
+  institutionId: string;
+  date: string;
+  closed: boolean;
+  closedAt: string | null;
+  closedBy: string | null;
+  createdAbsenceIds: string[];
+  updatedAt: string;
 }
 

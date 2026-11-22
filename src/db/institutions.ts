@@ -31,6 +31,13 @@ export interface InstitutionSettingsInput {
   canteenTrackingStart: string | null;
   cardAbsenceEnabled?: boolean;
   librarySupervisorsCanManage?: boolean;
+  entryStartTime?: string;
+  entryLateAfterMinutes?: number;
+  entryUseFirstTimetableLesson?: boolean;
+  entrySoundEnabled?: boolean;
+  entryVibrationEnabled?: boolean;
+  entryCooldownSeconds?: number;
+  entryMarkLateMissedLessons?: boolean;
 }
 
 export function isCardAbsenceEnabled(institution: Pick<Institution, 'cardAbsenceEnabled'>): boolean {
@@ -68,6 +75,15 @@ export async function updateInstitutionSettings(
     cardAbsenceEnabled: input.cardAbsenceEnabled ?? institution.cardAbsenceEnabled ?? true,
     librarySupervisorsCanManage:
       input.librarySupervisorsCanManage ?? institution.librarySupervisorsCanManage ?? false,
+    entryStartTime: input.entryStartTime ?? institution.entryStartTime ?? '08:00',
+    entryLateAfterMinutes: input.entryLateAfterMinutes ?? institution.entryLateAfterMinutes ?? 10,
+    entryUseFirstTimetableLesson:
+      input.entryUseFirstTimetableLesson ?? institution.entryUseFirstTimetableLesson ?? false,
+    entrySoundEnabled: input.entrySoundEnabled ?? institution.entrySoundEnabled ?? true,
+    entryVibrationEnabled: input.entryVibrationEnabled ?? institution.entryVibrationEnabled ?? true,
+    entryCooldownSeconds: input.entryCooldownSeconds ?? institution.entryCooldownSeconds ?? 3,
+    entryMarkLateMissedLessons:
+      input.entryMarkLateMissedLessons ?? institution.entryMarkLateMissedLessons ?? false,
     ...touchFields(actorId),
   });
 }

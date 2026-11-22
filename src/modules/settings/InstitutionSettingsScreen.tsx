@@ -10,6 +10,7 @@ import { useSession } from '@/modules/auth/AuthContext';
 import { errorKey } from '@/utils/errors';
 import type { AbsenceCountRule, AbsenceThresholdType, CanteenMatchField, Holiday } from '@/db/types';
 import { requiredKey } from '@/utils/validation';
+import { getEntrySettings } from '@/utils/entry';
 import { BackupCard } from './BackupCard';
 import { HolidaysEditor } from './HolidaysEditor';
 import { InviteCodeCard } from './InviteCodeCard';
@@ -34,6 +35,13 @@ interface InstitutionForm {
   canteenTrackingStart: string;
   cardAbsenceEnabled: boolean;
   librarySupervisorsCanManage: boolean;
+  entryStartTime: string;
+  entryLateAfterMinutes: string;
+  entryUseFirstTimetableLesson: boolean;
+  entrySoundEnabled: boolean;
+  entryVibrationEnabled: boolean;
+  entryCooldownSeconds: string;
+  entryMarkLateMissedLessons: boolean;
 }
 
 interface FormErrors {
@@ -45,23 +53,33 @@ interface FormErrors {
 export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
   const { t } = useTranslation();
   const { user, institution, refresh } = useSession();
-  const [form, setForm] = useState<InstitutionForm>(() => ({
-    name: institution.name,
-    rooms: String(institution.rooms),
-    workingDays: [...institution.workingDays],
-    canteenDays: [...(institution.canteenDays ?? institution.workingDays)],
-    holidays: [...institution.holidays],
-    directorate: institution.directorate ?? '',
-    city: institution.city ?? '',
-    reportNumberPrefix: institution.reportNumberPrefix ?? '',
-    absenceCountRule: institution.absenceCountRule ?? 'wholeDay',
-    absenceThresholdType: institution.absenceThresholdType ?? 'hours',
-    absenceThresholdValue: String(institution.absenceThresholdValue ?? 10),
-    canteenMatchField: institution.canteenMatchField ?? 'cardCode',
-    canteenTrackingStart: institution.canteenTrackingStart ?? '',
-    cardAbsenceEnabled: isCardAbsenceEnabled(institution),
-    librarySupervisorsCanManage: canSupervisorsManageLibrary(institution),
-  }));
+  const [form, setForm] = useState<InstitutionForm>(() => {
+    const entryDefaults = getEntrySettings(institution);
+    return {
+      name: institution.name,
+      rooms: String(institution.rooms),
+      workingDays: [...institution.workingDays],
+      canteenDays: [...(institution.canteenDays ?? institution.workingDays)],
+      holidays: [...institution.holidays],
+      directorate: institution.directorate ?? '',
+      city: institution.city ?? '',
+      reportNumberPrefix: institution.reportNumberPrefix ?? '',
+      absenceCountRule: institution.absenceCountRule ?? 'wholeDay',
+      absenceThresholdType: institution.absenceThresholdType ?? 'hours',
+      absenceThresholdValue: String(institution.absenceThresholdValue ?? 10),
+      canteenMatchField: institution.canteenMatchField ?? 'cardCode',
+      canteenTrackingStart: institution.canteenTrackingStart ?? '',
+      cardAbsenceEnabled: isCardAbsenceEnabled(institution),
+      librarySupervisorsCanManage: canSupervisorsManageLibrary(institution),
+      entryStartTime: entryDefaults.startTime,
+      entryLateAfterMinutes: String(entryDefaults.lateAfterMinutes),
+      entryUseFirstTimetableLesson: entryDefaults.useFirstTimetableLesson,
+      entrySoundEnabled: entryDefaults.soundEnabled,
+      entryVibrationEnabled: entryDefaults.vibrationEnabled,
+      entryCooldownSeconds: String(entryDefaults.cooldownSeconds),
+      entryMarkLateMissedLessons: entryDefaults.markLateMissedLessons,
+    };
+  });
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -117,6 +135,13 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
           canteenTrackingStart: form.canteenTrackingStart || null,
           cardAbsenceEnabled: form.cardAbsenceEnabled,
           librarySupervisorsCanManage: form.librarySupervisorsCanManage,
+          entryStartTime: form.entryStartTime || '08:00',
+          entryLateAfterMinutes: Math.max(0, Number(form.entryLateAfterMinutes) || 0),
+          entryUseFirstTimetableLesson: form.entryUseFirstTimetableLesson,
+          entrySoundEnabled: form.entrySoundEnabled,
+          entryVibrationEnabled: form.entryVibrationEnabled,
+          entryCooldownSeconds: Math.max(0, Number(form.entryCooldownSeconds) || 0),
+          entryMarkLateMissedLessons: form.entryMarkLateMissedLessons,
         },
         user.id,
       );
@@ -299,6 +324,102 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
               className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900"
             />
           </label>
+        </Section>
+
+        <Section title={t('institution.entrySection')} hint={t('institution.entryHint')}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
+              {t('institution.entryStartTime')}
+              <input
+                type="time"
+                value={form.entryStartTime}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm((previous) => ({ ...previous, entryStartTime: event.target.value }));
+                }}
+                className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900"
+              />
+            </label>
+            <TextField
+              label={t('institution.entryLateAfterMinutes')}
+              inputMode="numeric"
+              value={form.entryLateAfterMinutes}
+              onChange={(event) => {
+                setSaved(false);
+                setForm((previous) => ({ ...previous, entryLateAfterMinutes: event.target.value }));
+              }}
+            />
+          </div>
+
+          <TextField
+            label={t('institution.entryCooldownSeconds')}
+            inputMode="numeric"
+            value={form.entryCooldownSeconds}
+            onChange={(event) => {
+              setSaved(false);
+              setForm((previous) => ({ ...previous, entryCooldownSeconds: event.target.value }));
+            }}
+          />
+
+          <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2 text-sm text-neutral-800">
+            <span>{t('institution.entryUseFirstTimetableLesson')}</span>
+            <input
+              type="checkbox"
+              checked={form.entryUseFirstTimetableLesson}
+              onChange={(event) => {
+                setSaved(false);
+                setForm((previous) => ({ ...previous, entryUseFirstTimetableLesson: event.target.checked }));
+              }}
+              className="size-5 accent-primary-600"
+            />
+          </label>
+
+          <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3 py-2 text-sm text-neutral-800">
+            <span>{t('institution.entryMarkLateMissedLessons')}</span>
+            <input
+              type="checkbox"
+              checked={form.entryMarkLateMissedLessons}
+              onChange={(event) => {
+                setSaved(false);
+                setForm((previous) => ({ ...previous, entryMarkLateMissedLessons: event.target.checked }));
+              }}
+              className="size-5 accent-primary-600"
+            />
+          </label>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-neutral-700">{t('institution.entrySoundLabel')}</span>
+              <SegmentedControl<'on' | 'off'>
+                options={[
+                  { id: 'on', label: t('institution.cardAbsenceEnabled') },
+                  { id: 'off', label: t('institution.cardAbsenceDisabled') },
+                ]}
+                value={form.entrySoundEnabled ? 'on' : 'off'}
+                onChange={(value) => {
+                  setSaved(false);
+                  setForm((previous) => ({ ...previous, entrySoundEnabled: value === 'on' }));
+                }}
+              />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <span className="text-sm font-medium text-neutral-700">{t('institution.entryVibrationLabel')}</span>
+              <SegmentedControl<'on' | 'off'>
+                options={[
+                  { id: 'on', label: t('institution.cardAbsenceEnabled') },
+                  { id: 'off', label: t('institution.cardAbsenceDisabled') },
+                ]}
+                value={form.entryVibrationEnabled ? 'on' : 'off'}
+                onChange={(value) => {
+                  setSaved(false);
+                  setForm((previous) => ({ ...previous, entryVibrationEnabled: value === 'on' }));
+                }}
+              />
+            </div>
+          </div>
+
+          <p className="text-xs text-neutral-500">{t('institution.entryOpenDaysReuseHint')}</p>
         </Section>
 
         <Section title={t('institution.scheduleSection')} hint={t('institution.scheduleHint')}>

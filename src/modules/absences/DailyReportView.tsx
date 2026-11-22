@@ -6,7 +6,9 @@ import { FormError } from '@/components/ui/StatusBlock';
 import type { AbsenceWorkspace } from '@/db/absences';
 import { loadDailyReport, saveDailyReport, type DailyReportInput } from '@/db/dailyReports';
 import { listCanteenEntriesForDates } from '@/db/canteen';
-import type { CanteenEntry, DailyReportRecord } from '@/db/types';
+import { listGateEntriesForDate } from '@/db/entries';
+import type { CanteenEntry, DailyReportRecord, GateEntry } from '@/db/types';
+import { computeEntryStats } from '@/utils/entry';
 import { DailyPagePreview } from '@/modules/absences/DailyPagePreview';
 import { SupervisorRowsEditor, TeacherNotesEditor } from '@/modules/absences/DailyPage2Editors';
 import {
@@ -89,6 +91,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [canteenEntries, setCanteenEntries] = useState<CanteenEntry[] | null>(null);
+  const [gateEntries, setGateEntries] = useState<GateEntry[]>([]);
   const validDate = isIsoDate(date);
 
   useEffect(() => {
@@ -115,9 +118,14 @@ export function DailyReportView({ data }: DailyReportViewProps) {
     if (!validDate) return;
     let active = true;
     setCanteenEntries(null);
-    listCanteenEntriesForDates(institution.id, [date])
-      .then((entries) => {
-        if (active) setCanteenEntries(entries);
+    Promise.all([
+      listCanteenEntriesForDates(institution.id, [date]),
+      listGateEntriesForDate(institution.id, date),
+    ])
+      .then(([entries, gateRows]) => {
+        if (!active) return;
+        setCanteenEntries(entries);
+        setGateEntries(gateRows);
       })
       .catch(() => {
         if (active) setLoadFailed(true);
@@ -175,6 +183,8 @@ export function DailyReportView({ data }: DailyReportViewProps) {
 
   const availableSupervisors = data.supervisors.map((item) => item.name);
 
+  const entryStats = validDate ? computeEntryStats(data.students, gateEntries, date) : null;
+
   const reportRender: DailyReportRender | null =
     extras && validDate && computed
       ? {
@@ -198,6 +208,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           supervisorRows: extras.supervisorRows,
           counselorNotes: extras.counselorNotes,
           directorNotes: extras.directorNotes,
+          entrySummary: entryStats ? { entered: entryStats.entered, enrolled: entryStats.enrolled } : null,
         }
       : null;
 

@@ -26,6 +26,7 @@ export interface DailyReportRender {
   supervisorRows: SupervisorAbsenceRow[];
   counselorNotes: string;
   directorNotes: string;
+  entrySummary?: { entered: number; enrolled: number } | null;
 }
 
 export const TEACHER_MIN_ROWS = 8;
@@ -494,8 +495,12 @@ function renderLevelsSection(render: DailyReportRender): string {
     <td><b>${esc(formatRate(absenceRate(totalAbsent, totalEnrolled)))}</b></td>
   </tr>`;
 
+  const entryLine = render.entrySummary
+    ? `<div class="dr-sec-sub">عدد الداخلين اليوم: ${render.entrySummary.entered} من ${render.entrySummary.enrolled}</div>\n`
+    : '';
+
   return `<div class="dr-sec">3- مراقبة التلاميذ</div>
-<div class="dr-sec-sub">1-3- الغيابات:</div>
+${entryLine}<div class="dr-sec-sub">1-3- الغيابات:</div>
 <table class="dr-table" style="border-top:0">${thead}<tbody>${rows}${totalRow}</tbody></table>`;
 }
 

@@ -2,6 +2,8 @@ import Dexie, { type Table } from 'dexie';
 import type {
   CanteenEntry,
   DailyReportRecord,
+  EntryDayClosure,
+  GateEntry,
   Institution,
   LibraryFile,
   LibraryMeta,
@@ -41,6 +43,8 @@ class SchoolDatabase extends Dexie {
   canteenEntries!: Table<CanteenEntry, string>;
   libraryMeta!: Table<LibraryMeta, string>;
   libraryFiles!: Table<LibraryFile, string>;
+  entries!: Table<GateEntry, string>;
+  entryClosures!: Table<EntryDayClosure, string>;
 
   constructor() {
     super('school-admin');
@@ -77,6 +81,14 @@ class SchoolDatabase extends Dexie {
       .stores({
         libraryMeta: 'id, category, addedAt, lastOpenedAt, favorite, builtIn, hidden',
         libraryFiles: 'id, hash',
+      })
+      .upgrade(() => {
+        // Non-destructive upgrade: existing tables and records remain intact.
+      });
+    this.version(10)
+      .stores({
+        entries: 'id, institutionId, date, [date+studentId]',
+        entryClosures: 'id, institutionId, date',
       })
       .upgrade(() => {
         // Non-destructive upgrade: existing tables and records remain intact.

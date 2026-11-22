@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, GraduationCap, Home, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
+import { ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, DoorOpen, GraduationCap, Home, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppLogo } from '@/components/AppLogo';
 import { BottomTabs, type TabItem } from '@/components/BottomTabs';
@@ -17,9 +17,10 @@ import { SupervisorsScreen } from '@/modules/supervisors/SupervisorsScreen';
 import { TimetableScreen } from '@/modules/timetable/TimetableScreen';
 import { SearchScreen } from '@/modules/search/SearchScreen';
 import { CanteenScreen } from '@/modules/canteen/CanteenScreen';
+import { EntryScreen } from '@/modules/entry/EntryScreen';
 import { LibraryScreen } from '@/modules/library/LibraryScreen';
 
-export type TabId = 'home' | 'students' | 'cards' | 'timetable' | 'absences' | 'canteen' | 'statistics' | 'library' | 'supervisors' | 'settings' | 'search';
+export type TabId = 'home' | 'students' | 'cards' | 'timetable' | 'absences' | 'entry' | 'canteen' | 'statistics' | 'library' | 'supervisors' | 'settings' | 'search';
 
 export function AppShell() {
   const { t } = useTranslation();
@@ -27,6 +28,7 @@ export function AppShell() {
   const [tab, setTab] = useState<TabId>('home');
   const isHead = user.role === 'head';
   const hasCanteen = isHead || user.permissions !== null;
+  const hasEntry = isHead || user.permissions !== null;
 
   const tabs: TabItem<TabId>[] = [
     { id: 'home', label: t('nav.home'), icon: Home },
@@ -34,6 +36,7 @@ export function AppShell() {
     { id: 'cards', label: t('nav.cards'), icon: QrCode },
     { id: 'timetable', label: t('nav.timetable'), icon: CalendarDays },
     { id: 'absences', label: t('nav.absences'), icon: ClipboardList },
+    ...(hasEntry ? [{ id: 'entry' as const, label: t('nav.entry'), icon: DoorOpen }] : []),
     ...(hasCanteen ? [{ id: 'canteen' as const, label: t('nav.canteen'), icon: Utensils }] : []),
     { id: 'statistics', label: t('nav.statistics'), icon: BarChart3 },
     { id: 'library', label: t('nav.library'), icon: BookOpen },
@@ -67,6 +70,7 @@ export function AppShell() {
         {tab === 'cards' ? <StudentCardsScreen /> : null}
         {tab === 'timetable' ? <TimetableScreen /> : null}
         {tab === 'absences' ? <AbsencesScreen /> : null}
+        {tab === 'entry' && hasEntry ? <EntryScreen /> : null}
         {tab === 'canteen' && hasCanteen ? <CanteenScreen /> : null}
         {tab === 'statistics' ? <StatisticsScreen /> : null}
         {tab === 'library' ? <LibraryScreen /> : null}

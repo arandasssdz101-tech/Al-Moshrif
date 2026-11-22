@@ -355,7 +355,10 @@ function buildPage1Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRend
   applyGridBorders(ws, cStart, 1, canteenBodyEnd, totalCols, MEDIUM, THIN);
 
   // 5. Section 3: Student Absences by Level
-  setMergedCell(ws, r, 1, r, totalCols, '3- مراقبة التلاميذ', { size: 10, bold: true, align: ALIGN_RIGHT });
+  const studentSecHeader = render.entrySummary
+    ? `3- مراقبة التلاميذ  —  عدد الداخلين اليوم: ${render.entrySummary.entered} من ${render.entrySummary.enrolled}`
+    : '3- مراقبة التلاميذ';
+  setMergedCell(ws, r, 1, r, totalCols, studentSecHeader, { size: 10, bold: true, align: ALIGN_RIGHT });
   ws.getRow(r).height = 19;
   r += 1;
   setMergedCell(ws, r, 1, r, classCols + 2, '1-3- الغيابات:', { size: 9.5, bold: true, align: ALIGN_RIGHT });
