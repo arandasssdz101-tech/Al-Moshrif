@@ -6,6 +6,7 @@ import {
   detectHbMapping,
   matchStudent,
   buildHbPreviewRows,
+  findHalfBoardersMissingFromImport,
   buildHalfBoarderTemplate,
   buildHalfBoarderExportRows,
 } from '@/modules/canteen/halfBoardersImport';
@@ -198,7 +199,7 @@ describe('buildHbPreviewRows', () => {
     expect(rows[0].input?.boardingStatus).toBe('half-boarder');
   });
 
-  it('marks unmatched student as new', () => {
+  it('automatically skips/excludes unregistered students not found in Students list', () => {
     const rows = buildHbPreviewRows({
       rows: [['سامي', 'جديد', '15/03/2011', '1م1', '333']],
       mapping,
@@ -207,9 +208,9 @@ describe('buildHbPreviewRows', () => {
       today: T,
     });
     expect(rows).toHaveLength(1);
-    expect(rows[0].action).toBe('new');
-    expect(rows[0].input).not.toBeNull();
-    expect(rows[0].input?.boardingStatus).toBe('half-boarder');
+    expect(rows[0].action).toBe('skipped');
+    expect(rows[0].matchedStudent).toBeNull();
+    expect(rows[0].input).toBeNull();
   });
 
   it('reports error for missing first name', () => {
@@ -224,97 +225,59 @@ describe('buildHbPreviewRows', () => {
     expect(rows[0].issues.some((i) => i.key === 'missingName')).toBe(true);
   });
 
-  it('imports row with missing last name as warning, not error', () => {
+  it('matches registered student even when optional cells are empty and preserves data', () => {
     const rows = buildHbPreviewRows({
-      rows: [['سامي', '', '15/03/2011', '1م1', '555']],
+      rows: [['محمد', 'العربي', '', '', '']],
       mapping,
       classes,
       existing,
       today: T,
     });
-    expect(rows[0].action).not.toBe('error');
-    expect(rows[0].issues.some((i) => i.key === 'missingName' && i.field === 'lastName')).toBe(false);
-    expect(rows[0].input?.lastName).toBe('');
+    expect(rows[0].action).toBe('update');
+    expect(rows[0].input?.dateOfBirth).toBe('2010-03-15');
+    expect(rows[0].input?.classId).toBe('c1');
+    expect(rows[0].input?.cardCode).toBe('111');
   });
 
-  it('imports row with missing date of birth as warning, not error', () => {
-    const rows = buildHbPreviewRows({
-      rows: [['سامي', 'جديد', '', '1م1', '666']],
-      mapping,
-      classes,
-      existing,
-      today: T,
-    });
-    expect(rows[0].action).toBe('new');
-    expect(rows[0].input?.dateOfBirth).toBeNull();
-  });
-
-  it('imports row with missing class as warning, not error', () => {
-    const rows = buildHbPreviewRows({
-      rows: [['سامي', 'جديد', '15/03/2011', '', '777']],
-      mapping,
-      classes,
-      existing,
-      today: T,
-    });
-    expect(rows[0].action).toBe('new');
-    expect(rows[0].input?.classId).toBe('');
-  });
-
-  it('reports warning for class not found but still imports', () => {
-    const rows = buildHbPreviewRows({
-      rows: [['سامي', 'جديد', '15/03/2011', 'غير موجود', '555']],
-      mapping,
-      classes,
-      existing,
-      today: T,
-    });
-    expect(rows[0].action).toBe('new');
-    expect(rows[0].issues.some((i) => i.key === 'classNotFound')).toBe(true);
-  });
-
-  it('imports row with missing card code as warning, not error', () => {
-    const rows = buildHbPreviewRows({
-      rows: [['سامي', 'جديد', '15/03/2011', '1م1', '']],
-      mapping,
-      classes,
-      existing,
-      today: T,
-    });
-    expect(rows[0].action).toBe('new');
-    expect(rows[0].input?.cardCode).toBeNull();
-  });
-
-  it('reports warning for duplicate card code in file', () => {
+  it('reports warning for duplicate card code in file between two matched students', () => {
+    const twoExisting = [
+      ...existing,
+      makeStudent('s2', 'علي', 'أحمد', '2011-03-15', 'c1', '222'),
+    ];
     const rows = buildHbPreviewRows({
       rows: [
-        ['سامي', 'جديد', '15/03/2011', '1م1', '999'],
-        ['علي', 'جديد2', '15/03/2011', '1م1', '999'],
+        ['محمد', 'العربي', '15/03/2010', '1م1', '999'],
+        ['علي', 'أحمد', '15/03/2011', '1م1', '999'],
       ],
       mapping,
       classes,
-      existing,
+      existing: twoExisting,
       today: T,
     });
+    expect(rows[0].action).toBe('update');
+    expect(rows[1].action).toBe('update');
     expect(rows[1].issues.some((i) => i.key === 'duplicateInFile')).toBe(true);
-    expect(rows[1].action).not.toBe('error');
   });
 
   it('reports warning for duplicate card code already used by another student', () => {
+    const twoExisting = [
+      ...existing,
+      makeStudent('s2', 'سامي', 'جديد', '2011-03-15', 'c1'),
+    ];
     const rows = buildHbPreviewRows({
       rows: [['سامي', 'جديد', '15/03/2011', '1م1', '111']],
       mapping,
       classes,
-      existing,
+      existing: twoExisting,
       today: T,
     });
     expect(rows[0].issues.some((i) => i.key === 'duplicateExisting')).toBe(true);
-    expect(rows[0].action).not.toBe('error');
+    expect(rows[0].action).toBe('update');
   });
 
-  it('preserves leading zeros in card code', () => {
+  it('preserves leading zeros in card code on matched student', () => {
     const rows = buildHbPreviewRows({
-      rows: [['سامي', 'جديد', '15/03/2011', '1م1', '007']],
+      rows: [['محمد', 'العربي', '15/03/2010', '1م1', '007']],
       mapping,
       classes,
       existing,
@@ -323,9 +286,9 @@ describe('buildHbPreviewRows', () => {
     expect(rows[0].input?.cardCode).toBe('007');
   });
 
-  it('reads numeric card code as string', () => {
+  it('reads numeric card code as string on matched student', () => {
     const rows = buildHbPreviewRows({
-      rows: [['سامي', 'جديد', '15/03/2011', '1م1', 123456]],
+      rows: [['محمد', 'العربي', '15/03/2010', '1م1', 123456]],
       mapping,
       classes,
       existing,
@@ -345,44 +308,42 @@ describe('buildHbPreviewRows', () => {
     expect(rows).toHaveLength(0);
   });
 
-  it('splits single full name column into first and last name', () => {
+  it('splits single full name column into first and last name to match student', () => {
     const singleNameMapping = { firstName: 0, dateOfBirth: 1, className: 2, cardCode: 3 };
     const rows = buildHbPreviewRows({
-      rows: [['سامي العربي', '15/03/2011', '1م1', '888']],
+      rows: [['محمد العربي', '15/03/2010', '1م1', '888']],
       mapping: singleNameMapping,
       classes,
       existing,
       today: T,
     });
-    expect(rows[0].action).toBe('new');
-    expect(rows[0].input?.firstName).toBe('سامي');
+    expect(rows[0].action).toBe('update');
+    expect(rows[0].input?.firstName).toBe('محمد');
     expect(rows[0].input?.lastName).toBe('العربي');
   });
 
-  it('uses lastName-only column as firstName when firstName column is absent', () => {
-    const lastNameOnlyMapping = { lastName: 0, dateOfBirth: 1, className: 2, cardCode: 3 };
+  it('finds existing half-boarders missing from import to convert them to external', () => {
+    const students: Student[] = [
+      makeStudent('s1', 'محمد', 'العربي', '2010-03-15', 'c1', '111'), // half-boarder & in file
+      makeStudent('s2', 'أحمد', 'بن علي', '2010-05-10', 'c1', '222'), // half-boarder & NOT in file -> external
+      { ...makeStudent('s3', 'كريم', 'سعيد', '2010-08-20', 'c1'), boardingStatus: 'external' }, // already external
+    ];
     const rows = buildHbPreviewRows({
-      rows: [['سامي العربي', '15/03/2011', '1م1', '888']],
-      mapping: lastNameOnlyMapping,
-      classes,
-      existing,
-      today: T,
-    });
-    expect(rows[0].action).not.toBe('error');
-  });
-
-  it('preserves existing student data when Excel cells are empty on update', () => {
-    const rows = buildHbPreviewRows({
-      rows: [['محمد', 'العربي', '', '', '']],
+      rows: [
+        ['محمد', 'العربي', '15/03/2010', '1م1', '111'],
+        ['تلميذ', 'غير مسجل', '15/03/2010', '1م1', '999'],
+      ],
       mapping,
       classes,
-      existing,
+      existing: students,
       today: T,
     });
+
     expect(rows[0].action).toBe('update');
-    expect(rows[0].input?.dateOfBirth).toBe('2010-03-15');
-    expect(rows[0].input?.classId).toBe('c1');
-    expect(rows[0].input?.cardCode).toBe('111');
+    expect(rows[1].action).toBe('skipped');
+
+    const missing = findHalfBoardersMissingFromImport(students, rows);
+    expect(missing.map((s) => s.id)).toEqual(['s2']);
   });
 
   it('detects and parses boardingStatus (الصفة) column in headers, rows, template, and export', () => {

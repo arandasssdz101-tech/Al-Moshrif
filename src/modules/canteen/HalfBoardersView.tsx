@@ -19,6 +19,7 @@ import { TEXT_MAX_LENGTH, prepareStudentInput, validateStudentInput } from '@/db
 import {
   buildHbPreviewRows,
   detectHbMapping,
+  findHalfBoardersMissingFromImport,
   buildHalfBoarderTemplate,
   buildHalfBoarderExportRows,
   buildErrorWorkbook,
@@ -575,9 +576,14 @@ function ImportHalfBoardersModal({
   const [reading, setReading] = useState(false);
   const [committing, setCommitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ created: number; updated: number } | null>(null);
+  const [result, setResult] = useState<{ updated: number; removed: number; convertedToExternal: number } | null>(null);
   const [bypassWarnings, setBypassWarnings] = useState(false);
   const [confirmedConflictRows, setConfirmedConflictRows] = useState<Set<number>>(() => new Set());
+
+  const classNameById = useMemo(
+    () => new Map(classes.map((c) => [c.id, c.name])),
+    [classes],
+  );
 
   const reset = () => {
     setStep('pick'); setFile(null); setPreview([]);
@@ -612,7 +618,7 @@ function ImportHalfBoardersModal({
     }
   };
 
-  const conflictRows = preview.filter((r) => r.action !== 'error' && r.classConflict !== null);
+  const conflictRows = preview.filter((r) => r.action === 'update' && r.classConflict !== null);
   const allConflictsConfirmed =
     conflictRows.length > 0 && conflictRows.every((r) => confirmedConflictRows.has(r.rowNumber));
   const confirmedConflictCount = conflictRows.filter((r) => confirmedConflictRows.has(r.rowNumber)).length;
@@ -636,22 +642,28 @@ function ImportHalfBoardersModal({
   };
 
   const validRows = preview.filter((r) => {
-    if (r.action === 'error') return false;
+    if (r.action !== 'update') return false;
     if (!bypassWarnings && r.issues.length > 0) return false;
     if (r.classConflict !== null && !confirmedConflictRows.has(r.rowNumber)) return false;
     return true;
   });
-  const warningRows = preview.filter((r) => r.action !== 'error' && r.issues.length > 0);
+  const warningRows = preview.filter((r) => r.action === 'update' && r.issues.length > 0);
+  const skippedRows = preview.filter((r) => r.action === 'skipped');
   const errorRows = preview.filter((r) => r.action === 'error');
-  const newCount = preview.filter((r) => r.action === 'new').length;
   const updateCount = preview.filter((r) => r.action === 'update').length;
+  const hasRecognizedRows = errorRows.length < preview.length;
+  const toExternalStudents = useMemo(
+    () => (hasRecognizedRows ? findHalfBoardersMissingFromImport(existingStudents, preview) : []),
+    [existingStudents, preview, hasRecognizedRows],
+  );
+  const canCommit = !committing && (validRows.length > 0 || toExternalStudents.length > 0);
 
   const handleCommit = async () => {
     setCommitting(true);
     setError(null);
     try {
       const upsertRows: HbUpsertRow[] = validRows.map((r) => ({
-        action: r.action as 'new' | 'update',
+        action: 'update',
         input:
           r.input && r.classConflict
             ? { ...r.input, classId: r.classConflict.registeredClassId }
@@ -659,8 +671,13 @@ function ImportHalfBoardersModal({
         matchedStudentId: r.matchedStudent?.id ?? null,
         cardCode: r.input?.cardCode ?? r.matchedStudent?.cardCode ?? '',
       }));
-      const res = await upsertHalfBoarders(institution.id, upsertRows, user.id);
-      setResult(res);
+      const toExternalIds = toExternalStudents.map((s) => s.id);
+      const res = await upsertHalfBoarders(institution.id, upsertRows, user.id, toExternalIds);
+      setResult({
+        updated: res.updated,
+        removed: skippedRows.length,
+        convertedToExternal: res.convertedToExternal,
+      });
       setStep('done');
     } catch (commitError) {
       setError(t(errorKey(commitError)));
@@ -685,27 +702,27 @@ function ImportHalfBoardersModal({
       <Modal open={open} title={t('canteen.halfBoarders.importExcel')} onClose={close}>
         <div className="flex flex-col gap-4">
           <div className="grid grid-cols-4 gap-2">
-            <div className="flex flex-col items-center rounded-xl bg-success-50 p-3">
-              <span className="text-xs text-success-700">{t('canteen.halfBoarders.import.new')}</span>
-              <span className="text-2xl font-extrabold tabular-nums text-success-700">{newCount}</span>
-            </div>
-            <div className="flex flex-col items-center rounded-xl bg-primary-50 p-3">
+            <div className="flex flex-col items-center rounded-xl bg-primary-50 p-3 text-center">
               <span className="text-xs text-primary-700">{t('canteen.halfBoarders.import.update')}</span>
               <span className="text-2xl font-extrabold tabular-nums text-primary-700">{updateCount}</span>
             </div>
-            <div className="flex flex-col items-center rounded-xl bg-warning-50 p-3">
-              <span className="text-xs text-warning-700">
+            <div className="flex flex-col items-center rounded-xl bg-neutral-100 p-3 text-center">
+              <span className="text-xs text-neutral-700">{t('canteen.halfBoarders.import.unregistered')}</span>
+              <span className="text-2xl font-extrabold tabular-nums text-neutral-800">{skippedRows.length}</span>
+            </div>
+            <div className="flex flex-col items-center rounded-xl bg-warning-50 p-3 text-center">
+              <span className="text-xs text-warning-700">{t('canteen.halfBoarders.import.toExternal')}</span>
+              <span className="text-2xl font-extrabold tabular-nums text-warning-700">{toExternalStudents.length}</span>
+            </div>
+            <div className="flex flex-col items-center rounded-xl bg-danger-50 p-3 text-center">
+              <span className="text-xs text-danger-700">
                 {conflictRows.length > 0
                   ? t('canteen.halfBoarders.import.classConflicts')
-                  : t('canteen.halfBoarders.import.warnings')}
+                  : t('canteen.halfBoarders.import.errors')}
               </span>
-              <span className="text-2xl font-extrabold tabular-nums text-warning-700">
-                {conflictRows.length > 0 ? conflictRows.length : warningRows.length}
+              <span className="text-2xl font-extrabold tabular-nums text-danger-700">
+                {conflictRows.length > 0 ? conflictRows.length : errorRows.length}
               </span>
-            </div>
-            <div className="flex flex-col items-center rounded-xl bg-danger-50 p-3">
-              <span className="text-xs text-danger-700">{t('canteen.halfBoarders.import.errors')}</span>
-              <span className="text-2xl font-extrabold tabular-nums text-danger-700">{errorRows.length}</span>
             </div>
           </div>
 
@@ -743,6 +760,35 @@ function ImportHalfBoardersModal({
             </div>
           ) : null}
 
+          {skippedRows.length > 0 ? (
+            <div className="rounded-xl bg-neutral-100 px-4 py-3 text-xs font-medium text-neutral-700">
+              {t('canteen.halfBoarders.import.unregisteredRemovedHint', { count: skippedRows.length })}
+            </div>
+          ) : null}
+
+          {toExternalStudents.length > 0 ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-warning-200 bg-warning-50/60 p-3.5">
+              <div className="flex flex-col gap-0.5">
+                <p className="text-sm font-bold text-warning-900">
+                  {t('canteen.halfBoarders.import.toExternalTitle', { count: toExternalStudents.length })}
+                </p>
+                <p className="text-xs text-warning-800">
+                  {t('canteen.halfBoarders.import.toExternalHint')}
+                </p>
+              </div>
+              <ul className="max-h-28 space-y-1 overflow-y-auto pt-1 text-xs text-warning-900">
+                {toExternalStudents.map((student) => (
+                  <li key={student.id} className="flex items-center justify-between gap-2 rounded-md bg-white/80 px-2.5 py-1">
+                    <span className="truncate font-medium">{student.firstName} {student.lastName}</span>
+                    <span className="shrink-0 text-neutral-500">
+                      {classNameById.get(student.classId) ?? ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {validRows.length > 0 ? (
             <div className="rounded-xl bg-success-50 px-4 py-3 text-sm font-medium text-success-800">
               {t('canteen.halfBoarders.import.validRows', { count: validRows.length })}
@@ -765,34 +811,41 @@ function ImportHalfBoardersModal({
           <div className="max-h-60 overflow-y-auto">
             <ul className="flex flex-col gap-2">
               {preview.map((row) => {
-                const hasWarnings = row.issues.length > 0 && row.action !== 'error';
-                const hasConflict = row.classConflict !== null && row.action !== 'error';
+                const isSkipped = row.action === 'skipped';
+                const hasWarnings = row.issues.length > 0 && row.action === 'update';
+                const hasConflict = row.classConflict !== null && row.action === 'update';
                 const isConflictConfirmed = hasConflict && confirmedConflictRows.has(row.rowNumber);
                 const bg = row.action === 'error'
                   ? 'bg-danger-50'
-                  : hasConflict
-                    ? isConflictConfirmed ? 'bg-success-50' : 'bg-warning-50'
-                    : hasWarnings
-                      ? 'bg-warning-50'
-                      : row.action === 'update' ? 'bg-primary-50' : 'bg-success-50';
+                  : isSkipped
+                    ? 'bg-neutral-100'
+                    : hasConflict
+                      ? isConflictConfirmed ? 'bg-success-50' : 'bg-warning-50'
+                      : hasWarnings
+                        ? 'bg-warning-50'
+                        : 'bg-primary-50';
                 const textTone = row.action === 'error'
                   ? 'text-danger-700'
-                  : hasConflict
-                    ? isConflictConfirmed ? 'text-success-700' : 'text-warning-700'
-                    : hasWarnings
-                      ? 'text-warning-700'
-                      : row.action === 'update' ? 'text-primary-700' : 'text-success-700';
+                  : isSkipped
+                    ? 'text-neutral-600'
+                    : hasConflict
+                      ? isConflictConfirmed ? 'text-success-700' : 'text-warning-700'
+                      : hasWarnings
+                        ? 'text-warning-700'
+                        : 'text-primary-700';
                 const label = row.action === 'error'
                   ? t(`canteen.halfBoarders.import.${row.issues[0]?.key ?? 'unknownError'}`)
-                  : hasConflict
-                    ? isConflictConfirmed
-                      ? t('canteen.halfBoarders.import.classConflictConfirmedBadge', {
-                          className: row.classConflict!.registeredClassName,
-                        })
-                      : t('canteen.halfBoarders.import.classConflictBadge')
-                    : hasWarnings
-                      ? t(`canteen.halfBoarders.import.${row.issues[0]?.key ?? 'warningLabel'}`)
-                      : t(`canteen.halfBoarders.import.${row.action}Label`);
+                  : isSkipped
+                    ? t('canteen.halfBoarders.import.unregisteredBadge')
+                    : hasConflict
+                      ? isConflictConfirmed
+                        ? t('canteen.halfBoarders.import.classConflictConfirmedBadge', {
+                            className: row.classConflict!.registeredClassName,
+                          })
+                        : t('canteen.halfBoarders.import.classConflictBadge')
+                      : hasWarnings
+                        ? t(`canteen.halfBoarders.import.${row.issues[0]?.key ?? 'warningLabel'}`)
+                        : t('canteen.halfBoarders.import.updateLabel');
                 return (
                   <li
                     key={row.rowNumber}
@@ -800,7 +853,7 @@ function ImportHalfBoardersModal({
                   >
                     <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                       <div className="flex items-center gap-2">
-                        <span className="truncate font-medium text-neutral-900">
+                        <span className={`truncate font-medium ${isSkipped ? 'line-through text-neutral-500' : 'text-neutral-900'}`}>
                           {row.displayName || `#${row.rowNumber}`}
                         </span>
                         {row.input ? (
@@ -842,8 +895,13 @@ function ImportHalfBoardersModal({
             </ul>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row-reverse">
-            <Button onClick={handleCommit} disabled={committing || validRows.length === 0}>
-              {t('canteen.halfBoarders.import.commit', { count: validRows.length })}
+            <Button onClick={handleCommit} disabled={!canCommit}>
+              {toExternalStudents.length > 0
+                ? t('canteen.halfBoarders.import.commitSync', {
+                    updated: validRows.length,
+                    toExternal: toExternalStudents.length,
+                  })
+                : t('canteen.halfBoarders.import.commit', { count: validRows.length })}
             </Button>
             {errorRows.length > 0 ? (
               <Button variant="secondary" onClick={handleDownloadErrors} icon={<Download className="size-5" aria-hidden />}>
@@ -862,7 +920,11 @@ function ImportHalfBoardersModal({
       <Modal open={open} title={t('canteen.halfBoarders.importExcel')} onClose={close}>
         <div className="flex flex-col items-center gap-4 py-6 text-center">
           <p className="text-lg font-bold text-neutral-900">
-            {t('canteen.halfBoarders.import.doneSummary', { created: result.created, updated: result.updated })}
+            {t('canteen.halfBoarders.import.doneSummaryFull', {
+              updated: result.updated,
+              removed: result.removed,
+              converted: result.convertedToExternal,
+            })}
           </p>
           <Button onClick={onDone}>{t('common.close')}</Button>
         </div>

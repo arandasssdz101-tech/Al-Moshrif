@@ -16,7 +16,7 @@ export interface HbRowIssue {
   key: string;
 }
 
-export type HbRowAction = 'new' | 'update' | 'error';
+export type HbRowAction = 'update' | 'skipped' | 'error';
 
 export interface HbClassConflict {
   fileClassName: string;
@@ -244,10 +244,10 @@ export interface HbPreviewOptions {
   mapping: HbColumnMapping;
   classes: SchoolClass[];
   existing: Student[];
-  today: string;
+  today?: string;
 }
 
-export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: HbPreviewOptions): HbPreviewRow[] {
+export function buildHbPreviewRows({ rows, mapping, classes, existing }: HbPreviewOptions): HbPreviewRow[] {
   const classByName = new Map(classes.map((c) => [normalizeText(c.name), c]));
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));
   const fileCardCodes = new Set<string>();
@@ -349,18 +349,16 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
           addIssue('className', 'classNotFound');
         }
       }
-    } else if (classText !== '' && !schoolClass) {
-      addIssue('className', 'classNotFound');
-    }
 
-    if (cardCode) {
-      const existingOwner = existingCardOwnerByCode.get(cardCode);
-      if (fileCardCodes.has(cardCode)) {
-        addIssue('cardCode', 'duplicateInFile');
-      } else if (existingOwner && existingOwner !== matched?.id) {
-        addIssue('cardCode', 'duplicateExisting');
-      } else {
-        fileCardCodes.add(cardCode);
+      if (cardCode) {
+        const existingOwner = existingCardOwnerByCode.get(cardCode);
+        if (fileCardCodes.has(cardCode)) {
+          addIssue('cardCode', 'duplicateInFile');
+        } else if (existingOwner && existingOwner !== matched.id) {
+          addIssue('cardCode', 'duplicateExisting');
+        } else {
+          fileCardCodes.add(cardCode);
+        }
       }
     }
 
@@ -386,25 +384,26 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
           cardCode: cardCode || matched.cardCode || null,
         };
       } else {
-        action = 'new';
-        input = {
-          firstName,
-          lastName: lastName || '',
-          gender: 'male',
-          dateOfBirth,
-          placeOfBirth: '',
-          repeater: false,
-          boardingStatus: boardingResult.value,
-          classId: schoolClass?.id ?? '',
-          joinDate: today,
-          leaveDate: null,
-          cardCode: cardCode || null,
-        };
+        // Student is not registered in the Students list: automatically exclude/remove from import
+        action = 'skipped';
+        input = null;
       }
     }
 
     return [{ rowNumber, displayName, action, input, matchedStudent: matched, classConflict, issues }];
   });
+}
+
+export function findHalfBoardersMissingFromImport(
+  existing: Student[],
+  previewRows: Pick<HbPreviewRow, 'matchedStudent'>[],
+): Student[] {
+  const matchedIds = new Set(
+    previewRows
+      .map((row) => row.matchedStudent?.id)
+      .filter((id): id is string => Boolean(id)),
+  );
+  return existing.filter((student) => student.boardingStatus === 'half-boarder' && !matchedIds.has(student.id));
 }
 
 export interface HbTemplateOptions {

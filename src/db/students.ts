@@ -249,12 +249,14 @@ export interface HbUpsertRow {
 export interface HbUpsertResult {
   created: number;
   updated: number;
+  convertedToExternal: number;
 }
 
 export async function upsertHalfBoarders(
   institutionId: string,
   rows: HbUpsertRow[],
   actorId: string,
+  convertToExternalIds: string[] = [],
 ): Promise<HbUpsertResult> {
   const access = await getStudentAccess(actorId);
   const activeStudents = await listActiveStudents(institutionId);
@@ -262,6 +264,7 @@ export async function upsertHalfBoarders(
   const studentById = new Map(activeStudents.map((s) => [s.id, s]));
   let created = 0;
   let updated = 0;
+  let convertedToExternal = 0;
 
   for (const row of rows) {
     try {
@@ -312,5 +315,21 @@ export async function upsertHalfBoarders(
     }
   }
 
-  return { created, updated };
+  for (const studentId of convertToExternalIds) {
+    try {
+      const student = studentById.get(studentId);
+      if (!student || student.boardingStatus !== 'half-boarder') continue;
+      assertCanEditClassIn(access, student.classId);
+      await db.students.put({
+        ...student,
+        boardingStatus: 'external',
+        ...touchFields(actorId),
+      });
+      convertedToExternal++;
+    } catch {
+      continue;
+    }
+  }
+
+  return { created, updated, convertedToExternal };
 }
