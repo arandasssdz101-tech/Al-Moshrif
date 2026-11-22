@@ -488,3 +488,118 @@ export function computeLateMissedPeriods(
 
   return missed;
 }
+
+export interface AutoAbsencePlanItem {
+  studentId: string;
+  classId: string;
+  period: number;
+  subject: string;
+}
+
+export function planAutoAbsencesForStart(input: {
+  date: string;
+  students: Pick<Student, 'id' | 'classId' | 'joinDate' | 'leaveDate' | 'deletedAt'>[];
+  slots: LessonSlot[];
+  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[];
+  existingAbsences: { studentId: string; period: number; deletedAt: string | null }[];
+  settings: Pick<EntrySettings, 'markLateMissedLessons'>;
+}): AutoAbsencePlanItem[] {
+  const acceptedMap = acceptedEntryByStudent(input.entries, input.date);
+  const existingKeys = new Set(
+    input.existingAbsences
+      .filter((item) => item.deletedAt === null)
+      .map((item) => `${item.studentId}|${item.period}`),
+  );
+  const day = weekdayOfDate(input.date);
+  const lessonsByClass = new Map<string, { period: number; subject: string }[]>();
+  const getLessons = (classId: string) => {
+    let cached = lessonsByClass.get(classId);
+    if (!cached) {
+      cached = classLessonsForDay(input.slots, classId, day).map((lesson) => ({
+        period: lesson.period,
+        subject: lesson.subject,
+      }));
+      lessonsByClass.set(classId, cached);
+    }
+    return cached;
+  };
+
+  const planned: AutoAbsencePlanItem[] = [];
+  for (const student of input.students) {
+    if (student.deletedAt !== null || !isEnrolledOn(student, input.date)) continue;
+    const lessons = getLessons(student.classId);
+    if (lessons.length === 0) continue;
+
+    const accepted = acceptedMap.get(student.id);
+    if (!accepted) {
+      for (const lesson of lessons) {
+        const key = `${student.id}|${lesson.period}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        planned.push({
+          studentId: student.id,
+          classId: student.classId,
+          period: lesson.period,
+          subject: lesson.subject || '—',
+        });
+      }
+    } else if (input.settings.markLateMissedLessons && accepted.late) {
+      const missed = computeLateMissedPeriods(student.classId, input.date, accepted.time, input.slots);
+      for (const lesson of missed) {
+        const key = `${student.id}|${lesson.period}`;
+        if (existingKeys.has(key)) continue;
+        existingKeys.add(key);
+        planned.push({
+          studentId: student.id,
+          classId: student.classId,
+          period: lesson.period,
+          subject: lesson.subject || '—',
+        });
+      }
+    }
+  }
+
+  return planned;
+}
+
+export interface StudentGateAbsenceSyncPlan {
+  toSoftDeleteIds: string[];
+  toAdd: { period: number; subject: string }[];
+  hasManualAbsence: boolean;
+}
+
+export function planStudentGateAbsenceSync(input: {
+  classId: string;
+  date: string;
+  entryTime: string;
+  late: boolean;
+  slots: LessonSlot[];
+  existingStudentAbsences: { id: string; period: number; source?: 'manual' | 'gate'; deletedAt: string | null }[];
+  markLateMissedLessons: boolean;
+}): StudentGateAbsenceSyncPlan {
+  const active = input.existingStudentAbsences.filter((item) => item.deletedAt === null);
+  const missed =
+    input.late && input.markLateMissedLessons
+      ? computeLateMissedPeriods(input.classId, input.date, input.entryTime, input.slots)
+      : [];
+  const keepPeriods = new Set(missed.map((item) => item.period));
+
+  const toSoftDeleteIds: string[] = [];
+  const remainingPeriods = new Set<number>();
+  let hasManualAbsence = false;
+
+  for (const record of active) {
+    if (record.source === 'gate' && !keepPeriods.has(record.period)) {
+      toSoftDeleteIds.push(record.id);
+    } else {
+      remainingPeriods.add(record.period);
+      if (record.source !== 'gate') {
+        hasManualAbsence = true;
+      }
+    }
+  }
+
+  const toAdd = missed.filter((item) => !remainingPeriods.has(item.period));
+  return { toSoftDeleteIds, toAdd, hasManualAbsence };
+}
+

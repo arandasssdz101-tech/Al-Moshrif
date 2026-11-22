@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, DoorOpen, GraduationCap, Home, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
+import { lazy, Suspense, useState } from 'react';
+import { ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, DoorOpen, GraduationCap, Home, LayoutDashboard, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppLogo } from '@/components/AppLogo';
 import { BottomTabs, type TabItem } from '@/components/BottomTabs';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { LoadingState } from '@/components/ui/StatusBlock';
 import { AbsencesScreen } from '@/modules/absences/AbsencesScreen';
 import { useSession } from '@/modules/auth/AuthContext';
 import { StudentCardsScreen } from '@/modules/cards/StudentCardsScreen';
@@ -20,7 +21,13 @@ import { CanteenScreen } from '@/modules/canteen/CanteenScreen';
 import { EntryScreen } from '@/modules/entry/EntryScreen';
 import { LibraryScreen } from '@/modules/library/LibraryScreen';
 
-export type TabId = 'home' | 'students' | 'cards' | 'timetable' | 'absences' | 'entry' | 'canteen' | 'statistics' | 'library' | 'supervisors' | 'settings' | 'search';
+const AbsenceDashboardScreen = lazy(() =>
+  import('@/modules/dashboard/AbsenceDashboardScreen').then((module) => ({
+    default: module.AbsenceDashboardScreen,
+  })),
+);
+
+export type TabId = 'home' | 'dashboard' | 'students' | 'cards' | 'timetable' | 'absences' | 'entry' | 'canteen' | 'statistics' | 'library' | 'supervisors' | 'settings' | 'search';
 
 export function AppShell() {
   const { t } = useTranslation();
@@ -32,6 +39,7 @@ export function AppShell() {
 
   const tabs: TabItem<TabId>[] = [
     { id: 'home', label: t('nav.home'), icon: Home },
+    { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
     { id: 'students', label: t('nav.students'), icon: GraduationCap },
     { id: 'cards', label: t('nav.cards'), icon: QrCode },
     { id: 'timetable', label: t('nav.timetable'), icon: CalendarDays },
@@ -66,6 +74,11 @@ export function AppShell() {
 
       <main key={tab} className="mx-auto w-full max-w-3xl flex-1 px-4 pb-32 pt-6 animate-fade-up">
         {tab === 'home' ? <HomeScreen onNavigate={setTab} hasCanteen={hasCanteen} /> : null}
+        {tab === 'dashboard' ? (
+          <Suspense fallback={<LoadingState />}>
+            <AbsenceDashboardScreen onNavigate={setTab} />
+          </Suspense>
+        ) : null}
         {tab === 'students' ? <StudentsScreen onOpenCards={() => setTab('cards')} /> : null}
         {tab === 'cards' ? <StudentCardsScreen /> : null}
         {tab === 'timetable' ? <TimetableScreen /> : null}

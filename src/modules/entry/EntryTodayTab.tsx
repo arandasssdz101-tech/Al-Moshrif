@@ -4,7 +4,12 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import type { GateEntry, Student } from '@/db/types';
-import { recordGateEntry, type EntryWorkspace } from '@/db/entries';
+import {
+  ensureGateAutoAbsencesStarted,
+  recordGateEntry,
+  syncStudentGateAbsenceOnAcceptedScan,
+  type EntryWorkspace,
+} from '@/db/entries';
 import { isEnrolledOn } from '@/utils/absenceReports';
 import {
   acceptedEntryByStudent,
@@ -106,6 +111,8 @@ export function EntryTodayTab({
         minutesLate,
         source: 'manual',
       });
+      await ensureGateAutoAbsencesStarted(institution.id, actorId, date);
+      await syncStudentGateAbsenceOnAcceptedScan(institution.id, actorId, student, date, time, late);
       await onRefresh();
     } finally {
       setMarkingId(null);

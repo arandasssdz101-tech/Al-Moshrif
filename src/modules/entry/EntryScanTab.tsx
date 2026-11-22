@@ -20,12 +20,17 @@ import { Modal } from '@/components/ui/Modal';
 import type { EntryDayClosure, EntrySource, GateEntry, Student, StudentAbsence } from '@/db/types';
 import type { EntryWorkspace } from '@/db/entries';
 import {
+  clearGateAutoAbsencesForDay,
+  ensureGateAutoAbsencesStarted,
   recordGateEntry,
   removeStudentDayAbsences,
   reopenEntryDay,
+  restoreStudentGateAbsencesAfterUndo,
   softDeleteGateEntry,
+  syncStudentGateAbsenceOnAcceptedScan,
   undoCloseEntryDay,
 } from '@/db/entries';
+import { isCardAbsenceEnabled } from '@/db/institutions';
 import {
   computeEntryStats,
   decideGateScan,
@@ -111,6 +116,7 @@ export function EntryScanTab({
   }, []);
 
   const holidayInfo = useMemo(() => isInstitutionHolidayOrClosed(today, institution), [today, institution]);
+  const cardAbsenceEnabled = isCardAbsenceEnabled(institution);
   const stats = useMemo(() => computeEntryStats(students, entries, today), [students, entries, today]);
 
   const absentStudentIdsToday = useMemo(
@@ -182,11 +188,26 @@ export function EntryScanTab({
         const student = decision.student;
         const studentName = student ? studentFullName(student) : null;
         const className = student ? (classById.get(student.classId) ?? '') : null;
-        const hasManualAbsence = Boolean(
-          student &&
-            decision.result === 'accepted' &&
-            absencesRef.current.some((item) => item.deletedAt === null && item.studentId === student.id),
-        );
+
+        let hasManualAbsence = false;
+        if (decision.result === 'accepted' && student) {
+          if (cardAbsenceEnabled) {
+            await ensureGateAutoAbsencesStarted(institution.id, actorId, today);
+            const syncResult = await syncStudentGateAbsenceOnAcceptedScan(
+              institution.id,
+              actorId,
+              student,
+              today,
+              time,
+              decision.late,
+            );
+            hasManualAbsence = syncResult.hasManualAbsence;
+          } else {
+            hasManualAbsence = absencesRef.current.some(
+              (item) => item.deletedAt === null && item.studentId === student.id,
+            );
+          }
+        }
 
         if (decision.result === 'accepted' && !decision.late) {
           playEntryFeedback('accepted', {
@@ -284,7 +305,7 @@ export function EntryScanTab({
         await onRefresh();
       });
     },
-    [access.canEdit, today, students, slots, settings, institution.canteenMatchField, institution.id, actorId, azertyFix, classById, t, showBanner, onRefresh],
+    [access.canEdit, today, students, slots, settings, cardAbsenceEnabled, institution.canteenMatchField, institution.id, actorId, azertyFix, classById, t, showBanner, onRefresh],
   );
 
   const handleCameraDetect = useCallback(
@@ -324,8 +345,30 @@ export function EntryScanTab({
     setBusy(true);
     try {
       await softDeleteGateEntry(undoTarget.id, actorId);
+      if (undoTarget.result === 'accepted' && undoTarget.studentId) {
+        await restoreStudentGateAbsencesAfterUndo(institution.id, actorId, undoTarget.studentId, today);
+      }
       setUndoTarget(null);
       setStatusNotice(t('entry.notices.scanUndone'));
+      await onRefresh();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleToggleCamera = () => {
+    const next = !cameraOn;
+    setCameraOn(next);
+    if (next && access.canEdit && cardAbsenceEnabled && !closure?.autoAbsencesSyncedAt) {
+      void ensureGateAutoAbsencesStarted(institution.id, actorId, today).then(() => onRefresh());
+    }
+  };
+
+  const handleClearAutoAbsences = async () => {
+    setBusy(true);
+    try {
+      const removed = await clearGateAutoAbsencesForDay(institution.id, actorId, today);
+      setStatusNotice(t('entry.notices.autoAbsencesCleared', { count: removed }));
       await onRefresh();
     } finally {
       setBusy(false);
@@ -443,6 +486,33 @@ export function EntryScanTab({
             <span className="text-xs text-amber-800">{t('entry.holidayStillAllowed')}</span>
           </div>
         </div>
+      ) : null}
+
+      {/* Automatic timetable absence sync status */}
+      {cardAbsenceEnabled && !holidayInfo.closed ? (
+        closure?.autoAbsencesSyncedAt ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-xs font-semibold text-emerald-900">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 shrink-0 text-emerald-600" aria-hidden />
+              <span>{t('entry.autoAbsence.activeBanner')}</span>
+            </div>
+            {access.canEdit && !closure.closed ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleClearAutoAbsences()}
+                className="inline-flex min-h-8 items-center gap-1 rounded-lg bg-white px-2.5 text-xs font-bold text-emerald-800 ring-1 ring-emerald-200 transition hover:bg-emerald-100 disabled:opacity-50"
+              >
+                <Undo2 className="size-3.5" aria-hidden />
+                <span>{t('entry.autoAbsence.clearButton')}</span>
+              </button>
+            ) : null}
+          </div>
+        ) : access.canEdit ? (
+          <p className="rounded-2xl bg-neutral-100 px-4 py-2.5 text-xs font-medium text-neutral-600">
+            {t('entry.autoAbsence.readyHint')}
+          </p>
+        ) : null
       ) : null}
 
       {/* Closed day banner */}
@@ -580,7 +650,7 @@ export function EntryScanTab({
             cooldownSeconds={settings.cooldownSeconds}
             disabled={!access.canEdit}
             onDetect={handleCameraDetect}
-            onToggleActive={() => setCameraOn((prev) => !prev)}
+            onToggleActive={handleToggleCamera}
           />
           <EntryUsbScanner
             enabled={usbOn}

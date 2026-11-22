@@ -1,5 +1,5 @@
 import { DomainError } from '@/utils/errors';
-import { classLessonsForDay, isIsoDate, teacherLessonsForDay, weekdayOfDate } from '@/utils/absences';
+import { classLessonsForDay, isIsoDate, slotHasTeacher, teacherLessonsForDay, weekdayOfDate } from '@/utils/absences';
 import { assertCanEditClassIn, canAccessClass, getModuleAccess, type StudentAccess } from './access';
 import { db } from './database';
 import { getInstitution } from './institutions';
@@ -98,12 +98,15 @@ export async function saveClassDayAbsences(
       .equals(classId)
       .filter((record) => record.deletedAt === null && record.date === date)
       .toArray();
+    const existingByKey = new Map(existing.map((record) => [`${record.studentId}|${record.period}`, record]));
     for (const record of existing) {
       await db.studentAbsences.put({ ...record, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
     }
     for (const entry of unique.values()) {
       const lesson = lessonByPeriod.get(entry.period);
       if (!lesson) continue;
+      const prev = existingByKey.get(`${entry.studentId}|${entry.period}`);
+      const keepGateSource = prev?.source === 'gate' && prev.justified === entry.justified;
       await db.studentAbsences.add({
         ...newBaseFields(institutionId, actorId),
         classId,
@@ -112,6 +115,7 @@ export async function saveClassDayAbsences(
         period: entry.period,
         subject: lesson.subject,
         justified: entry.justified,
+        ...(keepGateSource ? { source: 'gate' as const } : {}),
       });
     }
   });
@@ -191,11 +195,20 @@ export async function saveTeacherAbsence(
   const institution = await getInstitution(institutionId);
   assertValidDate(date, institution.workingDays);
 
-  const slots = await db.timetableSlots
-    .where('institutionId')
-    .equals(institutionId)
-    .filter((slot) => slot.deletedAt === null && slot.teacherId === teacherId)
-    .toArray();
+  const [classes, allTeacherSlots] = await Promise.all([
+    db.classes
+      .where('institutionId')
+      .equals(institutionId)
+      .filter((schoolClass) => schoolClass.deletedAt === null)
+      .toArray(),
+    db.timetableSlots
+      .where('institutionId')
+      .equals(institutionId)
+      .filter((slot) => slot.deletedAt === null && slotHasTeacher(slot, teacherId))
+      .toArray(),
+  ]);
+  const activeClassIds = new Set(classes.map((schoolClass) => schoolClass.id));
+  const slots = allTeacherSlots.filter((slot) => activeClassIds.has(slot.classId));
   const teacherLessons = teacherLessonsForDay(slots, teacherId, weekdayOfDate(date));
   const selected = teacherLessons.filter((lesson) => periods.includes(lesson.period));
   if (selected.length !== new Set(periods).size) throw new DomainError('validation.invalidSlot');

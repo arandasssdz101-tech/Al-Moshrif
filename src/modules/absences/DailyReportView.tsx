@@ -197,7 +197,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
             reportDate: date,
           },
           computed,
-          wholeDayAbsences: absences.filter((item) => item.wholeDay),
+          wholeDayAbsences: absences.filter((item) => item.wholeDay || item.absentUntilEndOfDay),
           parentRows: extras.parentRows,
           observations: extras.observationsActions,
           plannedMeal: extras.plannedMeal,

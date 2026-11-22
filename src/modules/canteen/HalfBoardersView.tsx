@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Download, Edit3, Plus, Search, Trash2, Upload, Utensils } from 'lucide-react';
+import { AlertTriangle, Check, Download, Edit3, Plus, Search, Trash2, Upload, Utensils } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -577,10 +577,12 @@ function ImportHalfBoardersModal({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ created: number; updated: number } | null>(null);
   const [bypassWarnings, setBypassWarnings] = useState(false);
+  const [confirmedConflictRows, setConfirmedConflictRows] = useState<Set<number>>(() => new Set());
 
   const reset = () => {
     setStep('pick'); setFile(null); setPreview([]);
     setError(null); setResult(null); setBypassWarnings(false);
+    setConfirmedConflictRows(new Set());
   };
   const close = () => { reset(); onClose(); };
 
@@ -601,6 +603,7 @@ function ImportHalfBoardersModal({
         today: todayIso(),
       });
       setPreview(rows);
+      setConfirmedConflictRows(new Set());
       setStep('preview');
     } catch {
       setError(t('canteen.halfBoarders.import.readFailed'));
@@ -609,9 +612,35 @@ function ImportHalfBoardersModal({
     }
   };
 
-  const validRows = bypassWarnings
-    ? preview.filter((r) => r.action !== 'error')
-    : preview.filter((r) => r.action !== 'error' && r.issues.length === 0);
+  const conflictRows = preview.filter((r) => r.action !== 'error' && r.classConflict !== null);
+  const allConflictsConfirmed =
+    conflictRows.length > 0 && conflictRows.every((r) => confirmedConflictRows.has(r.rowNumber));
+  const confirmedConflictCount = conflictRows.filter((r) => confirmedConflictRows.has(r.rowNumber)).length;
+  const unconfirmedConflictCount = conflictRows.length - confirmedConflictCount;
+
+  const toggleAllConflicts = (checked: boolean) => {
+    if (checked) {
+      setConfirmedConflictRows(new Set(conflictRows.map((r) => r.rowNumber)));
+    } else {
+      setConfirmedConflictRows(new Set());
+    }
+  };
+
+  const toggleConflictRow = (rowNumber: number) => {
+    setConfirmedConflictRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowNumber)) next.delete(rowNumber);
+      else next.add(rowNumber);
+      return next;
+    });
+  };
+
+  const validRows = preview.filter((r) => {
+    if (r.action === 'error') return false;
+    if (!bypassWarnings && r.issues.length > 0) return false;
+    if (r.classConflict !== null && !confirmedConflictRows.has(r.rowNumber)) return false;
+    return true;
+  });
   const warningRows = preview.filter((r) => r.action !== 'error' && r.issues.length > 0);
   const errorRows = preview.filter((r) => r.action === 'error');
   const newCount = preview.filter((r) => r.action === 'new').length;
@@ -623,7 +652,10 @@ function ImportHalfBoardersModal({
     try {
       const upsertRows: HbUpsertRow[] = validRows.map((r) => ({
         action: r.action as 'new' | 'update',
-        input: r.input,
+        input:
+          r.input && r.classConflict
+            ? { ...r.input, classId: r.classConflict.registeredClassId }
+            : r.input,
         matchedStudentId: r.matchedStudent?.id ?? null,
         cardCode: r.input?.cardCode ?? r.matchedStudent?.cardCode ?? '',
       }));
@@ -655,21 +687,61 @@ function ImportHalfBoardersModal({
           <div className="grid grid-cols-4 gap-2">
             <div className="flex flex-col items-center rounded-xl bg-success-50 p-3">
               <span className="text-xs text-success-700">{t('canteen.halfBoarders.import.new')}</span>
-              <span className="text-2xl font-extrabold text-success-700">{newCount}</span>
+              <span className="text-2xl font-extrabold tabular-nums text-success-700">{newCount}</span>
             </div>
             <div className="flex flex-col items-center rounded-xl bg-primary-50 p-3">
               <span className="text-xs text-primary-700">{t('canteen.halfBoarders.import.update')}</span>
-              <span className="text-2xl font-extrabold text-primary-700">{updateCount}</span>
+              <span className="text-2xl font-extrabold tabular-nums text-primary-700">{updateCount}</span>
             </div>
             <div className="flex flex-col items-center rounded-xl bg-warning-50 p-3">
-              <span className="text-xs text-warning-700">{t('canteen.halfBoarders.import.warnings')}</span>
-              <span className="text-2xl font-extrabold text-warning-700">{warningRows.length}</span>
+              <span className="text-xs text-warning-700">
+                {conflictRows.length > 0
+                  ? t('canteen.halfBoarders.import.classConflicts')
+                  : t('canteen.halfBoarders.import.warnings')}
+              </span>
+              <span className="text-2xl font-extrabold tabular-nums text-warning-700">
+                {conflictRows.length > 0 ? conflictRows.length : warningRows.length}
+              </span>
             </div>
             <div className="flex flex-col items-center rounded-xl bg-danger-50 p-3">
               <span className="text-xs text-danger-700">{t('canteen.halfBoarders.import.errors')}</span>
-              <span className="text-2xl font-extrabold text-danger-700">{errorRows.length}</span>
+              <span className="text-2xl font-extrabold tabular-nums text-danger-700">{errorRows.length}</span>
             </div>
           </div>
+
+          {conflictRows.length > 0 ? (
+            <div className="flex flex-col gap-3 rounded-xl border border-warning-200 bg-warning-50/70 p-4">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning-700" aria-hidden />
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm font-bold text-warning-900">
+                    {t('canteen.halfBoarders.import.classConflictTitle', { count: conflictRows.length })}
+                  </p>
+                  <p className="text-xs text-warning-800">
+                    {t('canteen.halfBoarders.import.classConflictHint')}
+                  </p>
+                </div>
+              </div>
+
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl bg-white px-3.5 py-2.5 ring-1 ring-warning-300">
+                <input
+                  type="checkbox"
+                  checked={allConflictsConfirmed}
+                  onChange={(e) => toggleAllConflicts(e.target.checked)}
+                  className="size-5 rounded border-neutral-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span className="text-sm font-semibold text-neutral-900">
+                  {t('canteen.halfBoarders.import.confirmClassFixAll', { count: conflictRows.length })}
+                </span>
+              </label>
+
+              {unconfirmedConflictCount > 0 ? (
+                <p className="text-xs font-medium text-warning-800">
+                  {t('canteen.halfBoarders.import.unconfirmedConflictsHint')}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {validRows.length > 0 ? (
             <div className="rounded-xl bg-success-50 px-4 py-3 text-sm font-medium text-success-800">
@@ -694,28 +766,76 @@ function ImportHalfBoardersModal({
             <ul className="flex flex-col gap-2">
               {preview.map((row) => {
                 const hasWarnings = row.issues.length > 0 && row.action !== 'error';
+                const hasConflict = row.classConflict !== null && row.action !== 'error';
+                const isConflictConfirmed = hasConflict && confirmedConflictRows.has(row.rowNumber);
                 const bg = row.action === 'error'
                   ? 'bg-danger-50'
-                  : hasWarnings
-                    ? 'bg-warning-50'
-                    : row.action === 'update' ? 'bg-primary-50' : 'bg-success-50';
+                  : hasConflict
+                    ? isConflictConfirmed ? 'bg-success-50' : 'bg-warning-50'
+                    : hasWarnings
+                      ? 'bg-warning-50'
+                      : row.action === 'update' ? 'bg-primary-50' : 'bg-success-50';
                 const textTone = row.action === 'error'
                   ? 'text-danger-700'
-                  : hasWarnings
-                    ? 'text-warning-700'
-                    : row.action === 'update' ? 'text-primary-700' : 'text-success-700';
+                  : hasConflict
+                    ? isConflictConfirmed ? 'text-success-700' : 'text-warning-700'
+                    : hasWarnings
+                      ? 'text-warning-700'
+                      : row.action === 'update' ? 'text-primary-700' : 'text-success-700';
                 const label = row.action === 'error'
                   ? t(`canteen.halfBoarders.import.${row.issues[0]?.key ?? 'unknownError'}`)
-                  : hasWarnings
-                    ? t('canteen.halfBoarders.import.warningLabel')
-                    : t(`canteen.halfBoarders.import.${row.action}Label`);
+                  : hasConflict
+                    ? isConflictConfirmed
+                      ? t('canteen.halfBoarders.import.classConflictConfirmedBadge', {
+                          className: row.classConflict!.registeredClassName,
+                        })
+                      : t('canteen.halfBoarders.import.classConflictBadge')
+                    : hasWarnings
+                      ? t(`canteen.halfBoarders.import.${row.issues[0]?.key ?? 'warningLabel'}`)
+                      : t(`canteen.halfBoarders.import.${row.action}Label`);
                 return (
                   <li
                     key={row.rowNumber}
-                    className={`flex items-center justify-between rounded-lg p-2 text-sm ${bg}`}
+                    className={`flex items-center justify-between gap-2 rounded-lg p-2.5 text-sm ${bg}`}
                   >
-                    <span className="truncate">{row.displayName || `#${row.rowNumber}`}</span>
-                    <span className={`shrink-0 ${textTone}`}>{label}</span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium text-neutral-900">
+                          {row.displayName || `#${row.rowNumber}`}
+                        </span>
+                        {row.input ? (
+                          <span className="shrink-0 text-xs text-neutral-500">
+                            · {t(`students.boarding.${row.input.boardingStatus}`)}
+                          </span>
+                        ) : null}
+                      </div>
+                      {hasConflict && row.classConflict ? (
+                        <span className="text-xs font-medium text-warning-800">
+                          {t('canteen.halfBoarders.import.classConflictArrow', {
+                            fileClass: row.classConflict.fileClassName,
+                            registeredClass: row.classConflict.registeredClassName,
+                          })}
+                        </span>
+                      ) : null}
+                    </div>
+                    {hasConflict ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleConflictRow(row.rowNumber)}
+                        className={`inline-flex shrink-0 items-center gap-1 rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                          isConflictConfirmed
+                            ? 'bg-success-600 text-white'
+                            : 'bg-white text-warning-800 ring-1 ring-warning-400 hover:bg-warning-100'
+                        }`}
+                      >
+                        {isConflictConfirmed ? <Check className="size-3.5" aria-hidden /> : null}
+                        {isConflictConfirmed
+                          ? label
+                          : t('canteen.halfBoarders.import.confirmRowFix')}
+                      </button>
+                    ) : (
+                      <span className={`shrink-0 text-xs font-medium ${textTone}`}>{label}</span>
+                    )}
                   </li>
                 );
               })}

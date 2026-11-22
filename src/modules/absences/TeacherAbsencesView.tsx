@@ -72,7 +72,13 @@ export function TeacherAbsencesView({ data, onChanged }: TeacherAbsencesViewProp
           teacherName={teacherNameById.get(activeTeacherId) ?? ''}
           date={date}
           lessons={lessons}
-          initialPeriods={existing ? existing.lessons.map((lesson) => lesson.period) : lessons.map((lesson) => lesson.period)}
+          initialPeriods={
+            existing
+              ? existing.lessons
+                  .map((lesson) => lesson.period)
+                  .filter((period) => lessons.some((item) => item.period === period))
+              : lessons.map((lesson) => lesson.period)
+          }
           initialReason={existing?.reason ?? ''}
           initialReasonNote={existing?.reasonNote ?? ''}
           classNameById={classNameById}
@@ -137,10 +143,17 @@ function TeacherAbsenceForm({
     setSaving(true);
     setSaveError(null);
     try {
-      await saveTeacherAbsence(institution.id, user.id, teacherId, date, [...selected], {
-        reason: reason || undefined,
-        reasonNote,
-      });
+      await saveTeacherAbsence(
+        institution.id,
+        user.id,
+        teacherId,
+        date,
+        selectedLessons.map((lesson) => lesson.period),
+        {
+          reason: reason || undefined,
+          reasonNote,
+        },
+      );
       onSaved();
     } catch (cause) {
       setSaveError(t(errorKey(cause)));

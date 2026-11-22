@@ -3,6 +3,7 @@ import {
   affectedClassIds,
   classLessonsForDay,
   isIsoDate,
+  slotHasTeacher,
   summarizeStudentAbsences,
   teacherAbsenceHours,
   teacherLessonsForDay,
@@ -68,6 +69,26 @@ describe('teacher absences', () => {
 
   it('ignores lessons without a teacher', () => {
     expect(teacherLessonsForDay(SLOTS, 'missing', 0)).toEqual([]);
+  });
+
+  it('matches and lists lessons for teachers assigned to secondary split groups (TD)', () => {
+    const splitSlot: LessonSlot = {
+      classId: 'c1',
+      day: 2,
+      period: 3,
+      subject: 'French',
+      teacherId: 't1',
+      groups: [
+        { groupNumber: 1, subject: 'French', teacherId: 't1', roomId: null },
+        { groupNumber: 2, subject: 'French TD', teacherId: 't2', roomId: null },
+      ],
+    };
+    expect(slotHasTeacher(splitSlot, 't1')).toBe(true);
+    expect(slotHasTeacher(splitSlot, 't2')).toBe(true);
+    expect(slotHasTeacher(splitSlot, 't3')).toBe(false);
+    expect(teacherLessonsForDay([splitSlot], 't2', 2)).toEqual([
+      { period: 3, classId: 'c1', subject: 'French TD' },
+    ]);
   });
 });
 

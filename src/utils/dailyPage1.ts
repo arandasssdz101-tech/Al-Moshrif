@@ -1,7 +1,9 @@
 import type { BoardingStatus, SchoolClass, Student, StudentAbsence } from '@/db/types';
 import { isAbsentAllDay, isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
-import { absenceStreakStart } from '@/utils/dailyReportStats';
+import { shiftIsoDate } from '@/utils/dailyReportStats';
 import { classLessonsForDay, summarizeStudentAbsences, weekdayOfDate, type LessonSlot, type StudentAbsenceTotals } from '@/utils/absences';
+
+const MAX_STREAK_LOOKBACK_DAYS = 366;
 
 export interface StudentDayAbsence {
   studentId: string;
@@ -10,6 +12,7 @@ export interface StudentDayAbsence {
   boarding: BoardingStatus;
   hours: number;
   wholeDay: boolean;
+  absentUntilEndOfDay?: boolean;
   since: string;
   periods: number[];
 }
@@ -28,6 +31,8 @@ export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[
   const classById = new Map(input.classes.map((item) => [item.id, item]));
   const holidays = new Set(input.holidayDates);
   const totalsCache = new Map<string, Map<string, StudentAbsenceTotals>>();
+  const periodsCache = new Map<string, Map<string, Set<number>>>();
+
   const totalsOn = (day: string) => {
     let totals = totalsCache.get(day);
     if (!totals) {
@@ -36,9 +41,61 @@ export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[
     }
     return totals;
   };
-  const lessonCount = (classId: string, day: string) => classLessonsForDay(input.slots, classId, weekdayOfDate(day)).length;
+
+  const periodsOn = (day: string) => {
+    let byStudent = periodsCache.get(day);
+    if (!byStudent) {
+      byStudent = new Map<string, Set<number>>();
+      for (const record of input.absences) {
+        if (record.date !== day) continue;
+        let set = byStudent.get(record.studentId);
+        if (!set) {
+          set = new Set<number>();
+          byStudent.set(record.studentId, set);
+        }
+        set.add(record.period);
+      }
+      periodsCache.set(day, byStudent);
+    }
+    return byStudent;
+  };
+
+  const classDayInfo = (classId: string, day: string) => {
+    const lessons = classLessonsForDay(input.slots, classId, weekdayOfDate(day));
+    return {
+      count: lessons.length,
+      lastPeriod: lessons.length > 0 ? lessons[lessons.length - 1].period : null,
+    };
+  };
+
   const wholeDayOn = (student: Student, day: string) =>
-    isAbsentAllDay(totalsOn(day).get(student.id), lessonCount(student.classId, day));
+    isAbsentAllDay(totalsOn(day).get(student.id), classDayInfo(student.classId, day).count);
+
+  const absentLastPeriodOn = (student: Student, day: string) => {
+    const { lastPeriod } = classDayInfo(student.classId, day);
+    if (lastPeriod === null) return false;
+    return periodsOn(day).get(student.id)?.has(lastPeriod) === true;
+  };
+
+  const streakStartFor = (student: Student, date: string, wholeDayToday: boolean): string => {
+    if (!wholeDayToday) return date;
+    let start = date;
+    let cursor = shiftIsoDate(date, -1);
+    for (let step = 0; step < MAX_STREAK_LOOKBACK_DAYS; step += 1) {
+      if (isSchoolDay(cursor, input.workingDays, holidays)) {
+        if (wholeDayOn(student, cursor)) {
+          start = cursor;
+        } else if (absentLastPeriodOn(student, cursor)) {
+          start = cursor;
+          break;
+        } else {
+          break;
+        }
+      }
+      cursor = shiftIsoDate(cursor, -1);
+    }
+    return start;
+  };
 
   const result: StudentDayAbsence[] = [];
   for (const student of input.students) {
@@ -46,9 +103,8 @@ export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[
     const totals = totalsOn(input.date).get(student.id);
     if (!totals || totals.hours === 0) continue;
     const wholeDay = wholeDayOn(student, input.date);
-    const periods = [
-      ...new Set(input.absences.filter((item) => item.studentId === student.id && item.date === input.date).map((item) => item.period)),
-    ].sort((a, b) => a - b);
+    const absentUntilEndOfDay = wholeDay || absentLastPeriodOn(student, input.date);
+    const periods = [...(periodsOn(input.date).get(student.id) ?? [])].sort((a, b) => a - b);
     result.push({
       studentId: student.id,
       name: `${student.firstName} ${student.lastName}`,
@@ -56,9 +112,8 @@ export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[
       boarding: student.boardingStatus,
       hours: totals.hours,
       wholeDay,
-      since: wholeDay
-        ? absenceStreakStart(input.date, (day) => wholeDayOn(student, day), (day) => isSchoolDay(day, input.workingDays, holidays))
-        : input.date,
+      absentUntilEndOfDay,
+      since: absentUntilEndOfDay ? streakStartFor(student, input.date, wholeDay) : input.date,
       periods,
     });
   }

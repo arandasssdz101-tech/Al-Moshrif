@@ -1,9 +1,13 @@
 import { describe, it, expect } from 'vitest';
+import * as XLSX from 'xlsx';
 import {
   parseDateCell,
+  parseBoardingCell,
   detectHbMapping,
   matchStudent,
   buildHbPreviewRows,
+  buildHalfBoarderTemplate,
+  buildHalfBoarderExportRows,
 } from '@/modules/canteen/halfBoardersImport';
 import type { SchoolClass, Student } from '@/db/types';
 
@@ -379,5 +383,63 @@ describe('buildHbPreviewRows', () => {
     expect(rows[0].input?.dateOfBirth).toBe('2010-03-15');
     expect(rows[0].input?.classId).toBe('c1');
     expect(rows[0].input?.cardCode).toBe('111');
+  });
+
+  it('detects and parses boardingStatus (الصفة) column in headers, rows, template, and export', () => {
+    const headers = ['الاسم', 'اللقب', 'تاريخ الميلاد', 'القسم', 'الصفة', 'كود البطاقة'];
+    const detected = detectHbMapping(headers);
+    expect(detected.boardingStatus).toBe(4);
+    expect(detected.cardCode).toBe(5);
+
+    expect(parseBoardingCell('نصف داخلي')).toEqual({ value: 'half-boarder', valid: true });
+    expect(parseBoardingCell('ممنوح')).toEqual({ value: 'half-boarder', valid: true });
+    expect(parseBoardingCell('خارجي')).toEqual({ value: 'external', valid: true });
+    expect(parseBoardingCell('')).toEqual({ value: 'half-boarder', valid: true });
+    expect(parseBoardingCell('قيمة غريبة')).toEqual({ value: 'half-boarder', valid: false });
+
+    const wbAr = buildHalfBoarderTemplate('ar');
+    const sheetAr = XLSX.utils.sheet_to_json<string[]>(wbAr.Sheets['نصف الداخليين'], { header: 1 });
+    expect(sheetAr[0]).toContain('الصفة');
+    expect(sheetAr[1]).toContain('نصف داخلي');
+
+    const exported = buildHalfBoarderExportRows(existing, classes, 'ar');
+    expect(exported[0]['الصفة']).toBe('نصف داخلي');
+  });
+
+  it('detects class conflict for matched student and auto-corrects classId to student registered class', () => {
+    const twoClasses = [makeClass('c1', '1م1'), makeClass('c2', '2م1')];
+    const rows = buildHbPreviewRows({
+      rows: [
+        ['محمد', 'العربي', '15/03/2010', '2م1', '111'],
+        ['محمد', 'العربي', '', 'قسم خاطئ', ''],
+      ],
+      mapping,
+      classes: twoClasses,
+      existing,
+      today: T,
+    });
+
+    // Matched by name+DOB, class in file (2م1) conflicts with registered class (1م1)
+    expect(rows[0].action).toBe('update');
+    expect(rows[0].classConflict).toEqual({
+      fileClassName: '2م1',
+      fileClassId: 'c2',
+      registeredClassId: 'c1',
+      registeredClassName: '1م1',
+    });
+    expect(rows[0].input?.classId).toBe('c1');
+    // Keeping the student's own card code '111' should not trigger duplicateExisting
+    expect(rows[0].issues).toEqual([]);
+
+    // Matched by unique name even without DOB and with an unknown class string -> corrected to registered class c1
+    expect(rows[1].action).toBe('update');
+    expect(rows[1].classConflict).toEqual({
+      fileClassName: 'قسم خاطئ',
+      fileClassId: null,
+      registeredClassId: 'c1',
+      registeredClassName: '1م1',
+    });
+    expect(rows[1].input?.classId).toBe('c1');
+    expect(rows[1].issues).toEqual([]);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CanteenEntry, SchoolClass, Student, StudentAbsence, Teacher, TeacherAbsence, TimetableSlot, User } from '@/db/types';
-import { computePage2, periodColumns, type Page2Input } from '@/utils/dailyPage2';
+import { cleanDailyReportSubject, computePage2, formatDailyReportSubjects, periodColumns, type Page2Input } from '@/utils/dailyPage2';
+import { studentDayAbsences } from '@/utils/dailyPage1';
 import { weekdayOfDate } from '@/utils/absences';
 import { formatRate } from '@/utils/dailyReportStats';
 
@@ -82,6 +83,52 @@ describe('computePage2 student totals', () => {
     expect(level4).toMatchObject({ enrolled: 0, absent: 0, rate: null });
     expect(formatRate(level4?.rate ?? null)).toBe('—');
   });
+
+  it('includes both full-day absentees and students absent in the last hour of their timetable in the daily report', () => {
+    const s3 = student('s3', 'female');
+    const result = computePage2(
+      input({
+        students: [student('s1', 'male'), student('s2', 'female'), s3],
+        slots: [slot(1), slot(2), slot(3)],
+        studentAbsences: [
+          // s1: full day (1, 2, 3) -> counted
+          absence('s1', 1),
+          absence('s1', 2),
+          absence('s1', 3),
+          // s2: only period 1 (present at end of timetable) -> NOT counted under wholeDay rule
+          absence('s2', 1),
+          // s3: absent in period 3 (last hour of class timetable) -> counted!
+          absence('s3', 3),
+        ],
+      }),
+    );
+
+    const level1 = result.levels.find((item) => item.level === 1);
+    expect(level1).toMatchObject({ enrolled: 3, absent: 2 });
+    expect(result.summary.students.all).toEqual({ total: 3, absent: 2, present: 1 });
+
+    const page1Rows = studentDayAbsences({
+      date: DATE,
+      students: [student('s1', 'male'), student('s2', 'female'), s3],
+      classes: [{ ...base, id: 'c1', name: '1م1', level: undefined }] as SchoolClass[],
+      absences: [
+        absence('s1', 1),
+        absence('s1', 2),
+        absence('s1', 3),
+        absence('s2', 1),
+        absence('s3', 3),
+      ],
+      slots: [slot(1), slot(2), slot(3)],
+      workingDays: [0, 1, 2, 3, 4],
+      holidayDates: [],
+    });
+
+    const reported = page1Rows.filter((row) => row.wholeDay || row.absentUntilEndOfDay);
+    expect(reported.map((row) => row.studentId)).toEqual(['s1', 's3']);
+    expect(reported.find((row) => row.studentId === 's1')?.wholeDay).toBe(true);
+    expect(reported.find((row) => row.studentId === 's3')?.wholeDay).toBe(false);
+    expect(reported.find((row) => row.studentId === 's3')?.absentUntilEndOfDay).toBe(true);
+  });
 });
 
 describe('computePage2 teachers, canteen and supervisors', () => {
@@ -95,8 +142,40 @@ describe('computePage2 teachers, canteen and supervisors', () => {
     };
     const result = computePage2(input({ teacherAbsences: [teacherAbsence] }));
     expect(result.teacherLines).toHaveLength(1);
-    expect(result.teacherLines[0]).toMatchObject({ name: 'Teacher', marks: [2], classes: '1م1' });
+    expect(result.teacherLines[0]).toMatchObject({ name: 'Teacher', subjects: 'Math', marks: [2], classes: '1م1' });
     expect(result.summary.teachers).toEqual({ total: 1, absent: 1, present: 0 });
+  });
+
+  it('shows only the base subject name without TD duplicates for absent teachers', () => {
+    const teacherAbsence: TeacherAbsence = {
+      ...base,
+      id: 'ta-td',
+      teacherId: 't1',
+      date: DATE,
+      lessons: [
+        { period: 1, classId: 'c1', subject: 'فرنسية' },
+        { period: 2, classId: 'c1', subject: 'فرنسية Td' },
+        { period: 3, classId: 'c1', subject: 'فرنسية (TD)' },
+      ],
+    };
+    const result = computePage2(input({ teacherAbsences: [teacherAbsence] }));
+    expect(result.teacherLines[0]?.subjects).toBe('فرنسية');
+  });
+
+  it('cleans TD markers across all subjects and formats', () => {
+    expect(cleanDailyReportSubject('فرنسية Td')).toBe('فرنسية');
+    expect(cleanDailyReportSubject('رياضيات TD')).toBe('رياضيات');
+    expect(cleanDailyReportSubject('إنجليزية (T.D)')).toBe('إنجليزية');
+    expect(cleanDailyReportSubject('TD عربية')).toBe('عربية');
+    expect(cleanDailyReportSubject('فرنسيةTD')).toBe('فرنسية');
+    expect(cleanDailyReportSubject('فيزياء - أعمال موجهة')).toBe('فيزياء');
+    expect(cleanDailyReportSubject('علوم طبيعية (أ.م)')).toBe('علوم طبيعية');
+    expect(cleanDailyReportSubject('Study')).toBe('Study');
+
+    expect(formatDailyReportSubjects(['فرنسية/ فرنسية    Td'])).toBe('فرنسية');
+    expect(formatDailyReportSubjects(['رياضيات TD'])).toBe('رياضيات');
+    expect(formatDailyReportSubjects(['إنجليزية', 'انجليزية td'])).toBe('إنجليزية');
+    expect(formatDailyReportSubjects(['رياضيات', 'رياضيات TD', 'فيزياء Td'])).toBe('رياضيات / فيزياء');
   });
 
   it('counts a supervisor absent when either period is absent', () => {

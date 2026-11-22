@@ -301,7 +301,7 @@ export async function upsertHalfBoarders(
                 classId: updatedClassId,
               }
             : {}),
-          boardingStatus: 'half-boarder',
+          boardingStatus: row.input?.boardingStatus ?? 'half-boarder',
           cardCode: code ?? student.cardCode,
           ...touchFields(actorId),
         });

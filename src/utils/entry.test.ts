@@ -7,6 +7,8 @@ import {
   computeTenMinuteBuckets,
   decideGateScan,
   DEFAULT_ENTRY_SETTINGS,
+  planAutoAbsencesForStart,
+  planStudentGateAbsenceSync,
   resolveExpectedStartTime,
 } from '@/utils/entry';
 import { buildEntryExport, parseEntryExport, planEntryMerge } from '@/utils/entryMerge';
@@ -202,5 +204,79 @@ describe('Gate Entry domain logic', () => {
       { label: '07:40', count: 2, lateCount: 0 },
       { label: '08:10', count: 1, lateCount: 1 },
     ]);
+  });
+
+  it('plans automatic timetable absences for non-entered students when gate scanning starts', () => {
+    const students = [
+      makeStudent({ id: 's1', classId: 'c1' }),
+      makeStudent({ id: 's2', classId: 'c1' }),
+      makeStudent({ id: 's3', classId: 'c2' }), // class c2 has no lessons on Monday
+    ];
+    const slots: TimetableSlot[] = [
+      { ...BASE, id: 'sl1', classId: 'c1', day: 1, period: 1, subject: 'رياضيات', teacherId: null, roomId: null },
+      { ...BASE, id: 'sl2', classId: 'c1', day: 1, period: 2, subject: 'فرنسية', teacherId: null, roomId: null },
+    ];
+    const entries: GateEntry[] = [
+      makeEntry({ id: 'e1', studentId: 's1', date: '2026-10-12', time: '07:55:00', result: 'accepted' }),
+    ];
+
+    const planned = planAutoAbsencesForStart({
+      date: '2026-10-12',
+      students,
+      slots,
+      entries,
+      existingAbsences: [],
+      settings: { markLateMissedLessons: false },
+    });
+
+    // Only s2 (not entered, class c1 has periods 1 & 2) should be marked absent
+    expect(planned).toEqual([
+      { studentId: 's2', classId: 'c1', period: 1, subject: 'رياضيات' },
+      { studentId: 's2', classId: 'c1', period: 2, subject: 'فرنسية' },
+    ]);
+  });
+
+  it('removes gate-generated absences when a student scans in and preserves manual absences', () => {
+    const slots: TimetableSlot[] = [
+      { ...BASE, id: 'sl1', classId: 'c1', day: 1, period: 1, subject: 'رياضيات', teacherId: null, roomId: null },
+      { ...BASE, id: 'sl2', classId: 'c1', day: 1, period: 2, subject: 'فرنسية', teacherId: null, roomId: null },
+      { ...BASE, id: 'sl3', classId: 'c1', day: 1, period: 3, subject: 'فيزياء', teacherId: null, roomId: null },
+    ];
+
+    // On-time scan clears all gate-generated absences without flagging manual absence
+    const onTimePlan = planStudentGateAbsenceSync({
+      classId: 'c1',
+      date: '2026-10-12',
+      entryTime: '07:58:00',
+      late: false,
+      slots,
+      existingStudentAbsences: [
+        { id: 'a1', period: 1, source: 'gate', deletedAt: null },
+        { id: 'a2', period: 2, source: 'gate', deletedAt: null },
+        { id: 'a3', period: 3, source: 'gate', deletedAt: null },
+      ],
+      markLateMissedLessons: true,
+    });
+    expect(onTimePlan.toSoftDeleteIds).toEqual(['a1', 'a2', 'a3']);
+    expect(onTimePlan.toAdd).toEqual([]);
+    expect(onTimePlan.hasManualAbsence).toBe(false);
+
+    // Late arrival at 09:15 with markLateMissedLessons keeps period 1 (08:00-09:00) and clears 2 & 3
+    const latePlan = planStudentGateAbsenceSync({
+      classId: 'c1',
+      date: '2026-10-12',
+      entryTime: '09:15:00',
+      late: true,
+      slots,
+      existingStudentAbsences: [
+        { id: 'a1', period: 1, source: 'gate', deletedAt: null },
+        { id: 'a2', period: 2, source: 'gate', deletedAt: null },
+        { id: 'a3', period: 3, source: 'manual', deletedAt: null },
+      ],
+      markLateMissedLessons: true,
+    });
+    expect(latePlan.toSoftDeleteIds).toEqual(['a2']);
+    expect(latePlan.toAdd).toEqual([]);
+    expect(latePlan.hasManualAbsence).toBe(true);
   });
 });

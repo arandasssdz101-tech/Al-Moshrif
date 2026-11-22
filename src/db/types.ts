@@ -140,6 +140,7 @@ export interface StudentAbsenceInput {
   subject: string;
   justified: boolean;
   status?: 'absent' | 'late';
+  source?: 'manual' | 'gate';
 }
 
 export interface StudentAbsence extends BaseRecord, StudentAbsenceInput {}
@@ -278,6 +279,7 @@ export interface EntryDayClosure {
   closedAt: string | null;
   closedBy: string | null;
   createdAbsenceIds: string[];
+  autoAbsencesSyncedAt?: string | null;
   updatedAt: string;
 }
 

@@ -1,13 +1,13 @@
 import * as XLSX from 'xlsx';
 import { normalizeText } from '@/utils/text';
 import { isIsoDate } from '@/utils/validation';
-import type { SchoolClass, Student, StudentInput } from '@/db/types';
+import type { BoardingStatus, SchoolClass, Student, StudentInput } from '@/db/types';
 import { ar } from '@/i18n/locales/ar';
 import { en } from '@/i18n/locales/en';
 
-export type HbField = 'firstName' | 'lastName' | 'dateOfBirth' | 'className' | 'cardCode';
+export type HbField = 'firstName' | 'lastName' | 'dateOfBirth' | 'className' | 'boardingStatus' | 'cardCode';
 
-export const HB_FIELDS: HbField[] = ['firstName', 'lastName', 'dateOfBirth', 'className', 'cardCode'];
+export const HB_FIELDS: HbField[] = ['firstName', 'lastName', 'dateOfBirth', 'className', 'boardingStatus', 'cardCode'];
 
 export type HbColumnMapping = Partial<Record<HbField, number>>;
 
@@ -18,12 +18,20 @@ export interface HbRowIssue {
 
 export type HbRowAction = 'new' | 'update' | 'error';
 
+export interface HbClassConflict {
+  fileClassName: string;
+  fileClassId: string | null;
+  registeredClassId: string;
+  registeredClassName: string;
+}
+
 export interface HbPreviewRow {
   rowNumber: number;
   displayName: string;
   action: HbRowAction;
   input: StudentInput | null;
   matchedStudent: Student | null;
+  classConflict: HbClassConflict | null;
   issues: HbRowIssue[];
 }
 
@@ -75,6 +83,58 @@ function buildResult(year: number, month: number, day: number): { value: string 
   return isIsoDate(iso) ? { value: iso, valid: true } : { value: null, valid: false };
 }
 
+const HALF_BOARDER_TOKENS = [
+  'نصف داخلي',
+  'نصف-داخلي',
+  'نصف داخلي ممنوح',
+  'نصف داخلي مسدد',
+  'ممنوح',
+  'مسدد',
+  'ن د',
+  'ن.د',
+  'ند',
+  'half-boarder',
+  'half boarder',
+  'halfboarder',
+  'hb',
+  'dp',
+  'demi-pensionnaire',
+  'demi pensionnaire',
+  'yes',
+  'نعم',
+  '1',
+];
+
+const EXTERNAL_TOKENS = [
+  'خارجي',
+  'خ',
+  'external',
+  'ext',
+  'externe',
+  'no',
+  'لا',
+  '0',
+];
+
+export function parseBoardingCell(value: unknown): { value: BoardingStatus; valid: boolean } {
+  const text = cellText(value);
+  if (text === '') return { value: 'half-boarder', valid: true };
+  const normalized = normalizeText(text).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (HALF_BOARDER_TOKENS.some((token) => normalizeText(token).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() === normalized)) {
+    return { value: 'half-boarder', valid: true };
+  }
+  if (EXTERNAL_TOKENS.some((token) => normalizeText(token).replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim() === normalized)) {
+    return { value: 'external', valid: true };
+  }
+  if (normalized.includes(normalizeText('نصف داخلي')) || normalized.includes('half boarder') || normalized.includes('demi pension')) {
+    return { value: 'half-boarder', valid: true };
+  }
+  if (normalized.includes(normalizeText('خارجي')) || normalized.includes('external') || normalized.includes('externe')) {
+    return { value: 'external', valid: true };
+  }
+  return { value: 'half-boarder', valid: false };
+}
+
 const FIELD_ALIASES: Record<HbField, string[]> = {
   firstName: [
     'الاسم الاول', 'الاسم', 'الإسم', 'اسم', 'التلميذ', 'الطالب',
@@ -92,9 +152,13 @@ const FIELD_ALIASES: Record<HbField, string[]> = {
     'الصف', 'القسم', 'الفوج', 'الفصل',
     'class', 'class name', 'grade', 'group', 'classe', 'section',
   ],
+  boardingStatus: [
+    'الصفة', 'صفة', 'صفة التلميذ', 'الحالة', 'النظام', 'نظام التمدرس',
+    'status', 'boarding', 'boarding status', 'regime', 'régime',
+  ],
   cardCode: [
     'كود البطاقة', 'رقم البطاقة', 'رقم التعريف', 'البطاقة',
-    'barcode', 'card', 'card code', 'id', 'card id', 'رقم البطاقة',
+    'barcode', 'card', 'card code', 'id', 'card id',
   ],
 };
 
@@ -168,7 +232,7 @@ export function matchStudent(
     if (byNameAndClass.length === 1) return byNameAndClass[0];
   }
 
-  if (dateOfBirth === null && className === null) {
+  if (dateOfBirth === null) {
     const byNameOnly = existing.filter((s) => arNormalize(s.firstName) === fn && arNormalize(s.lastName) === ln);
     if (byNameOnly.length === 1) return byNameOnly[0];
   }
@@ -185,8 +249,13 @@ export interface HbPreviewOptions {
 
 export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: HbPreviewOptions): HbPreviewRow[] {
   const classByName = new Map(classes.map((c) => [normalizeText(c.name), c]));
+  const classNameById = new Map(classes.map((c) => [c.id, c.name]));
   const fileCardCodes = new Set<string>();
-  const existingCardCodes = new Set(existing.map((s) => s.cardCode?.trim()).filter(Boolean));
+  const existingCardOwnerByCode = new Map<string, string>();
+  for (const student of existing) {
+    const code = student.cardCode?.trim();
+    if (code) existingCardOwnerByCode.set(code, student.id);
+  }
 
   const hasFirstNameCol = mapping.firstName !== undefined;
   const hasLastNameCol = mapping.lastName !== undefined;
@@ -240,6 +309,8 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
     const classText = cellText(read('className'));
     const cardCodeRaw = read('cardCode');
     const cardCode = cardCodeRaw === null || cardCodeRaw === undefined ? '' : String(cardCodeRaw).trim();
+    const boardingResult = parseBoardingCell(read('boardingStatus'));
+    if (!boardingResult.valid) addIssue('boardingStatus', 'invalidBoardingStatus');
 
     if (!firstName) addIssue('firstName', 'missingName');
 
@@ -248,17 +319,6 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
     const dateOfBirth = dateResult.value;
 
     const schoolClass = classText === '' ? undefined : classByName.get(normalizeText(classText));
-    if (classText !== '' && !schoolClass) addIssue('className', 'classNotFound');
-
-    if (cardCode) {
-      if (fileCardCodes.has(cardCode)) {
-        addIssue('cardCode', 'duplicateInFile');
-      } else if (existingCardCodes.has(cardCode)) {
-        addIssue('cardCode', 'duplicateExisting');
-      } else {
-        fileCardCodes.add(cardCode);
-      }
-    }
 
     const displayName = `${firstName} ${lastName}`.trim();
     const rowNumber = index + 2;
@@ -270,12 +330,48 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
       matched = matchStudent(firstName, lastName || '', dateOfBirth, classText || null, existing, classes);
     }
 
+    let classConflict: HbClassConflict | null = null;
+
+    if (matched) {
+      const registeredClassName = classNameById.get(matched.classId) ?? '';
+      if (classText !== '') {
+        const hasDifferentClass =
+          (schoolClass !== undefined && schoolClass.id !== matched.classId) ||
+          (schoolClass === undefined && normalizeText(classText) !== normalizeText(registeredClassName));
+        if (hasDifferentClass && matched.classId) {
+          classConflict = {
+            fileClassName: classText,
+            fileClassId: schoolClass?.id ?? null,
+            registeredClassId: matched.classId,
+            registeredClassName,
+          };
+        } else if (schoolClass === undefined && !matched.classId) {
+          addIssue('className', 'classNotFound');
+        }
+      }
+    } else if (classText !== '' && !schoolClass) {
+      addIssue('className', 'classNotFound');
+    }
+
+    if (cardCode) {
+      const existingOwner = existingCardOwnerByCode.get(cardCode);
+      if (fileCardCodes.has(cardCode)) {
+        addIssue('cardCode', 'duplicateInFile');
+      } else if (existingOwner && existingOwner !== matched?.id) {
+        addIssue('cardCode', 'duplicateExisting');
+      } else {
+        fileCardCodes.add(cardCode);
+      }
+    }
+
     let action: HbRowAction = 'error';
     let input: StudentInput | null = null;
 
     if (!hasBlockingError) {
       if (matched) {
         action = 'update';
+        // Always keep the student's registered class in the Students list when there is a class conflict
+        const resolvedClassId = classConflict ? matched.classId : (schoolClass?.id ?? matched.classId);
         input = {
           firstName: firstName || matched.firstName,
           lastName: lastName || matched.lastName,
@@ -283,8 +379,8 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
           dateOfBirth: dateOfBirth ?? matched.dateOfBirth,
           placeOfBirth: matched.placeOfBirth,
           repeater: matched.repeater,
-          boardingStatus: 'half-boarder',
-          classId: schoolClass?.id ?? matched.classId,
+          boardingStatus: boardingResult.value,
+          classId: resolvedClassId,
           joinDate: matched.joinDate,
           leaveDate: matched.leaveDate,
           cardCode: cardCode || matched.cardCode || null,
@@ -298,7 +394,7 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
           dateOfBirth,
           placeOfBirth: '',
           repeater: false,
-          boardingStatus: 'half-boarder',
+          boardingStatus: boardingResult.value,
           classId: schoolClass?.id ?? '',
           joinDate: today,
           leaveDate: null,
@@ -307,7 +403,7 @@ export function buildHbPreviewRows({ rows, mapping, classes, existing, today }: 
       }
     }
 
-    return [{ rowNumber, displayName, action, input, matchedStudent: matched, issues }];
+    return [{ rowNumber, displayName, action, input, matchedStudent: matched, classConflict, issues }];
   });
 }
 
@@ -317,29 +413,28 @@ export interface HbTemplateOptions {
 
 export function buildHalfBoarderTemplate(lang: 'en' | 'ar'): XLSX.WorkBook {
   const locale = lang === 'ar' ? ar : en;
+  const boardingHeader = lang === 'ar' ? locale.canteen.halfBoarders.import.boardingColumn : locale.canteen.halfBoarders.import.boardingColumn;
   const headers = [
     locale.students.fields.firstName,
     locale.students.fields.lastName,
     locale.students.fields.dateOfBirth,
     locale.students.fields.className,
+    boardingHeader,
     locale.students.cardCode.label,
   ];
   const exampleRow = lang === 'ar'
-    ? ['محمد', 'العربي', '15/03/2010', '1م1', '123456']
-    : ['Ahmed', 'Ben Ali', '15/03/2010', '1M1', '123456'];
+    ? ['محمد', 'العربي', '15/03/2010', '1م1', 'نصف داخلي', '123456']
+    : ['Ahmed', 'Ben Ali', '15/03/2010', '1M1', 'Half-boarder', '123456'];
 
   const wb = XLSX.utils.book_new();
   const sheetData = [headers, exampleRow];
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
 
-  for (let col = 0; col < headers.length; col++) {
-    const addr = XLSX.utils.encode_cell({ r: 1, c: col });
-    if (col === 4) {
-      if (!ws['!cells']) ws['!cells'] = {};
-      ws[addr] = { t: 's', v: exampleRow[col] };
-    }
-  }
-  ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 16 }];
+  const cardColIndex = 5;
+  const cardAddr = XLSX.utils.encode_cell({ r: 1, c: cardColIndex });
+  ws[cardAddr] = { t: 's', v: exampleRow[cardColIndex] };
+
+  ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(wb, ws, lang === 'ar' ? 'نصف الداخليين' : 'Half-boarders');
 
   const instrTitle = lang === 'ar' ? 'تعليمات' : 'Instructions';
@@ -349,16 +444,18 @@ export function buildHalfBoarderTemplate(lang: 'en' | 'ar'): XLSX.WorkBook {
       [headers[0], 'اسم الطالب'],
       [headers[1], 'لقب الطالب'],
       [headers[2], 'تاريخ الميلاد بصيغة dd/mm/yyyy (يوم/شهر/سنة)'],
-      [headers[3], 'اسم القسم كما هو مسجل في التطبيق'],
-      [headers[4], 'رقم البطاقة (باركود) - يُقرأ كنص مع الحفاظ على الأصفار البادئة'],
+      [headers[3], 'اسم القسم كما هو مسجل في التطبيق (في حال وجود تعارض يُصحح وفق قائمة الطلاب)'],
+      [headers[4], 'صفة التلميذ: نصف داخلي أو خارجي (افتراضياً: نصف داخلي)'],
+      [headers[5], 'رقم البطاقة (باركود) - يُقرأ كنص مع الحفاظ على الأصفار البادئة'],
     ]
     : [
       ['Column', 'Description'],
       [headers[0], 'Student first name'],
       [headers[1], 'Student last name'],
       [headers[2], 'Date of birth in dd/mm/yyyy format (day/month/year)'],
-      [headers[3], 'Class name exactly as registered in the app'],
-      [headers[4], 'Card code (barcode) - read as text, leading zeros preserved'],
+      [headers[3], 'Class name as registered in the app (mismatches can be auto-corrected to the student’s registered class)'],
+      [headers[4], 'Boarding status: Half-boarder or External (defaults to Half-boarder)'],
+      [headers[5], 'Card code (barcode) - read as text, leading zeros preserved'],
     ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(instructions), instrTitle);
 
@@ -372,11 +469,13 @@ export function buildHalfBoarderExportRows(
 ): Record<string, string>[] {
   const locale = lang === 'ar' ? ar : en;
   const classNameById = new Map(classes.map((c) => [c.id, c.name]));
+  const boardingHeader = locale.canteen.halfBoarders.import.boardingColumn;
   return students.map((s) => ({
     [locale.students.fields.firstName]: s.firstName,
     [locale.students.fields.lastName]: s.lastName,
     [locale.students.fields.dateOfBirth]: s.dateOfBirth ?? '',
     [locale.students.fields.className]: classNameById.get(s.classId) ?? '',
+    [boardingHeader]: locale.students.boarding[s.boardingStatus],
     [locale.students.cardCode.label]: s.cardCode ?? '',
   }));
 }

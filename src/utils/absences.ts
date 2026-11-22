@@ -37,6 +37,10 @@ export function classLessonsForDay(slots: LessonSlot[], classId: string, day: nu
     });
 }
 
+export function slotHasTeacher(slot: LessonSlot, teacherId: string): boolean {
+  return slotLessons(slot).some((lesson) => lesson.teacherId === teacherId);
+}
+
 export function teacherLessonsForDay(slots: LessonSlot[], teacherId: string, day: number): TeacherAbsenceLesson[] {
   const byPeriod = new Map<number, TeacherAbsenceLesson>();
   for (const slot of [...slots].sort((a, b) => a.period - b.period)) {

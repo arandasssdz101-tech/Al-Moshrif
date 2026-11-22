@@ -2,9 +2,44 @@ import type { AbsenceCountRule, CanteenEntry, SchoolClass, Student, StudentAbsen
 import { canteenReport, isEnrolledOn, teacherDayAbsences } from '@/utils/absenceReports';
 import { classLessonsForDay, summarizeStudentAbsences, weekdayOfDate } from '@/utils/absences';
 import { levelAttendance, personCounts, studentSummary, type LevelAttendance, type PersonCounts, type StudentSummary } from '@/utils/dailyReportStats';
+import { normalizeText } from '@/utils/text';
 
 export const DEFAULT_PERIOD_COLUMNS = 7;
 export const MAX_PERIOD_COLUMNS = 8;
+
+const BRACKETED_TD_RE = /\s*[[({]\s*(?:t\.?\s*d\.?(?:\s*\d+)?|[أإآا]عمال\s+موجه[ةه]|[أإآا]\s*\.\s*م\.?)\s*[\])}]\s*/gi;
+const STANDALONE_TD_RE = /(^|[\s\-–—_:/\\,،+·•\u0600-\u06FF])(?:t\.?\s*d\.?(?:\s*\d+)?)(?=$|[\s\-–—_:/\\,،+·•()[\]{}\u0600-\u06FF])/gi;
+const ARABIC_TD_RE = /(^|[\s\-–—_:/\\,،+·•()[\]{}])(?:[أإآا]عمال\s+موجه[ةه]|[أإآا]\s*\.\s*م\.?)(?=$|[\s\-–—_:/\\,،+·•()[\]{}])/g;
+const EDGE_SEPARATORS_RE = /^[\s\-–—_:/\\,،+·•]+|[\s\-–—_:/\\,،+·•]+$/g;
+
+export function cleanDailyReportSubject(subject: string): string {
+  return subject
+    .replace(BRACKETED_TD_RE, ' ')
+    .replace(STANDALONE_TD_RE, '$1')
+    .replace(ARABIC_TD_RE, '$1')
+    .replace(/\s+/g, ' ')
+    .replace(EDGE_SEPARATORS_RE, '')
+    .trim();
+}
+
+export function formatDailyReportSubjects(rawSubjects: string[]): string {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  for (const raw of rawSubjects) {
+    for (const part of raw.split('/')) {
+      const base = cleanDailyReportSubject(part);
+      if (!base) continue;
+      const key = normalizeText(base);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      cleaned.push(base);
+    }
+  }
+
+  if (cleaned.length > 0) return cleaned.join(' / ');
+  return [...new Set(rawSubjects.map((item) => item.trim()).filter(Boolean))].join(' / ');
+}
 
 export interface TeacherLineRender {
   teacherId: string;
@@ -85,12 +120,29 @@ function scannedCanteenRender(
 export function computePage2(input: Page2Input): Page2Computed {
   const totalsByStudent = summarizeStudentAbsences(input.studentAbsences, input.date);
   const weekday = weekdayOfDate(input.date);
-  const lessonCountByClass = new Map(
+  const lessonsByClass = new Map(
     input.classes.map((schoolClass) => [
       schoolClass.id,
-      classLessonsForDay(input.slots, schoolClass.id, weekday).length,
+      classLessonsForDay(input.slots, schoolClass.id, weekday),
     ]),
   );
+  const lessonCountByClass = new Map(
+    Array.from(lessonsByClass.entries()).map(([classId, lessons]) => [classId, lessons.length]),
+  );
+  const lastPeriodByClass = new Map(
+    Array.from(lessonsByClass.entries()).map(([classId, lessons]) => [
+      classId,
+      lessons.length > 0 ? lessons[lessons.length - 1].period : null,
+    ]),
+  );
+  const absentLastPeriodByStudent = new Set<string>();
+  for (const record of input.studentAbsences) {
+    if (record.date !== input.date) continue;
+    const lastPeriod = lastPeriodByClass.get(record.classId);
+    if (lastPeriod !== null && lastPeriod !== undefined && record.period === lastPeriod) {
+      absentLastPeriodByStudent.add(record.studentId);
+    }
+  }
   const attendance = {
     classes: input.classes,
     students: input.students,
@@ -98,6 +150,7 @@ export function computePage2(input: Page2Input): Page2Computed {
     rule: input.rule,
     totalsByStudent,
     lessonCountByClass,
+    absentLastPeriodByStudent,
   };
 
   const teacherById = new Map(input.teachers.map((teacher) => [teacher.id, teacher]));
@@ -108,7 +161,7 @@ export function computePage2(input: Page2Input): Page2Computed {
   const teacherLines: TeacherLineRender[] = absentTeachers.map((absence) => ({
     teacherId: absence.teacherId,
     name: teacherById.get(absence.teacherId)?.name ?? '',
-    subjects: [...new Set(absence.lessons.map((lesson) => lesson.subject))].join(' / '),
+    subjects: formatDailyReportSubjects(absence.lessons.map((lesson) => lesson.subject)),
     marks: absence.lessons.map((lesson) => lesson.period),
     classes: [...new Set(absence.lessons.map((lesson) => classNameById.get(lesson.classId) ?? ''))].join(' / '),
     classByPeriod: Object.fromEntries(

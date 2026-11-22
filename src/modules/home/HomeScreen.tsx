@@ -5,6 +5,7 @@ import {
   ClipboardList,
   DoorOpen,
   GraduationCap,
+  LayoutDashboard,
   QrCode,
   Search,
   UserCheck,
@@ -95,6 +96,7 @@ export function HomeScreen({ onNavigate, hasCanteen }: HomeScreenProps) {
   const inviteCode = formatInviteCode(institution.inviteCode);
 
   const quickLinks: { id: TabId; label: string; icon: ReactNode; tone: keyof typeof TONE_CLASSES }[] = [
+    { id: 'dashboard', label: t('nav.dashboard'), icon: <LayoutDashboard className="size-5" aria-hidden />, tone: 'primary' },
     { id: 'students', label: t('nav.students'), icon: <GraduationCap className="size-5" aria-hidden />, tone: 'primary' },
     { id: 'cards', label: t('nav.cards'), icon: <QrCode className="size-5" aria-hidden />, tone: 'primary' },
     { id: 'absences', label: t('nav.absences'), icon: <ClipboardList className="size-5" aria-hidden />, tone: 'warning' },

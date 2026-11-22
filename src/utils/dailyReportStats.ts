@@ -15,9 +15,10 @@ export function isCountedAbsent(
   rule: AbsenceCountRule,
   totals: StudentAbsenceTotals | undefined,
   lessonCount: number,
+  absentLastPeriod = false,
 ): boolean {
   if (!totals || totals.hours === 0) return false;
-  return rule === 'anyPeriod' || isAbsentAllDay(totals, lessonCount);
+  return rule === 'anyPeriod' || isAbsentAllDay(totals, lessonCount) || absentLastPeriod;
 }
 
 export function absenceRate(absent: number, enrolled: number): number | null {
@@ -68,6 +69,7 @@ export interface AttendanceInput {
   rule: AbsenceCountRule;
   totalsByStudent: ReadonlyMap<string, StudentAbsenceTotals>;
   lessonCountByClass: ReadonlyMap<string, number>;
+  absentLastPeriodByStudent?: ReadonlySet<string>;
 }
 
 function isStudentAbsent(input: AttendanceInput, student: AttendanceInput['students'][number]): boolean {
@@ -75,6 +77,7 @@ function isStudentAbsent(input: AttendanceInput, student: AttendanceInput['stude
     input.rule,
     input.totalsByStudent.get(student.id),
     input.lessonCountByClass.get(student.classId) ?? 0,
+    input.absentLastPeriodByStudent?.has(student.id) ?? false,
   );
 }
 
