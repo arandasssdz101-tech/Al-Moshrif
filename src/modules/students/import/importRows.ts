@@ -25,6 +25,10 @@ export const REQUIRED_IMPORT_FIELDS: readonly ImportField[] = ['firstName', 'las
 
 export type ColumnMapping = Partial<Record<ImportField, number>>;
 
+export type StudentImportMode = 'replace' | 'addMissing';
+
+export type PreviewRowStatus = 'new' | 'existing' | 'invalid';
+
 export interface RowIssue {
   field: ImportField | null;
   key: string;
@@ -33,7 +37,10 @@ export interface RowIssue {
 export interface PreviewRow {
   rowNumber: number;
   displayName: string;
+  className: string;
   input: StudentInput | null;
+  matchedStudentId: string | null;
+  status: PreviewRowStatus;
   issues: RowIssue[];
 }
 
@@ -147,6 +154,24 @@ function parseDateCell(value: unknown): { value: string | null; valid: boolean }
   return iso ? { value: iso, valid: true } : invalid;
 }
 
+export function matchExistingStudent(
+  prepared: StudentInput,
+  existingByKey: ReadonlyMap<string, Student>,
+  existingByCardCode: ReadonlyMap<string, Student>,
+  alreadyMatchedIds?: ReadonlySet<string>,
+): Student | null {
+  const key = studentIdentityKey(prepared);
+  const byKey = existingByKey.get(key);
+  if (byKey && !alreadyMatchedIds?.has(byKey.id)) return byKey;
+
+  const code = prepared.cardCode?.trim();
+  if (code) {
+    const byCode = existingByCardCode.get(code);
+    if (byCode && !alreadyMatchedIds?.has(byCode.id)) return byCode;
+  }
+  return null;
+}
+
 interface BuildPreviewOptions {
   rows: unknown[][];
   mapping: ColumnMapping;
@@ -156,8 +181,18 @@ interface BuildPreviewOptions {
 }
 
 export function buildPreviewRows({ rows, mapping, classes, existing, today }: BuildPreviewOptions): PreviewRow[] {
-  const existingKeys = new Set(existing.map(studentIdentityKey));
+  const existingByKey = new Map<string, Student>();
+  const existingByCardCode = new Map<string, Student>();
+  for (const student of existing) {
+    if (student.deletedAt !== null) continue;
+    existingByKey.set(studentIdentityKey(student), student);
+    const code = student.cardCode?.trim();
+    if (code) existingByCardCode.set(code, student);
+  }
+
   const fileKeys = new Set<string>();
+  const fileCardCodes = new Set<string>();
+  const matchedIds = new Set<string>();
   const classByName = new Map(classes.map((schoolClass) => [normalizeText(schoolClass.name), schoolClass]));
 
   return rows.flatMap((cells, index) => {
@@ -218,20 +253,111 @@ export function buildPreviewRows({ rows, mapping, classes, existing, today }: Bu
     const displayName = `${firstName} ${lastName}`.trim();
     const rowNumber = index + 2;
     let input: StudentInput | null = null;
+    let matchedStudentId: string | null = null;
+    let status: PreviewRowStatus = 'invalid';
 
     if (issues.length === 0) {
       const prepared = prepareStudentInput(candidate);
       const key = studentIdentityKey(prepared);
-      if (existingKeys.has(key)) {
-        addIssue(null, 'validation.duplicateStudent');
-      } else if (fileKeys.has(key)) {
+      const code = prepared.cardCode?.trim() || null;
+
+      if (fileKeys.has(key)) {
         addIssue(null, 'validation.duplicateInFile');
+      } else if (code && fileCardCodes.has(code)) {
+        addIssue('cardCode', 'students.cardCode.duplicate');
       } else {
         fileKeys.add(key);
+        if (code) fileCardCodes.add(code);
+        const matched = matchExistingStudent(prepared, existingByKey, existingByCardCode, matchedIds);
         input = prepared;
+        if (matched) {
+          matchedIds.add(matched.id);
+          matchedStudentId = matched.id;
+          status = 'existing';
+        } else {
+          status = 'new';
+        }
       }
     }
 
-    return [{ rowNumber, displayName, input, issues }];
+    return [
+      {
+        rowNumber,
+        displayName,
+        className: schoolClass?.name ?? classText,
+        input,
+        matchedStudentId,
+        status,
+        issues,
+      },
+    ];
   });
+}
+
+export function findExtraExistingStudents(existing: Student[], previewRows: PreviewRow[]): Student[] {
+  const matchedIds = new Set<string>();
+  for (const row of previewRows) {
+    if (row.matchedStudentId) matchedIds.add(row.matchedStudentId);
+  }
+  return existing
+    .filter((student) => student.deletedAt === null && !matchedIds.has(student.id))
+    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+}
+
+export interface StudentImportPlan {
+  toAdd: StudentInput[];
+  toUpdate: { existing: Student; input: StudentInput }[];
+  toDelete: Student[];
+  skippedExistingCount: number;
+}
+
+export function planStudentImport(input: {
+  existing: Student[];
+  incomingRows: StudentInput[];
+  mode: StudentImportMode;
+  deleteExtraStudentIds?: string[];
+}): StudentImportPlan {
+  const activeExisting = input.existing.filter((student) => student.deletedAt === null);
+  const existingByKey = new Map<string, Student>();
+  const existingByCardCode = new Map<string, Student>();
+  for (const student of activeExisting) {
+    existingByKey.set(studentIdentityKey(student), student);
+    const code = student.cardCode?.trim();
+    if (code) existingByCardCode.set(code, student);
+  }
+
+  const matchedIds = new Set<string>();
+  const toAdd: StudentInput[] = [];
+  const toUpdate: { existing: Student; input: StudentInput }[] = [];
+  let skippedExistingCount = 0;
+
+  for (const rawRow of input.incomingRows) {
+    const prepared = prepareStudentInput(rawRow);
+    const matched = matchExistingStudent(prepared, existingByKey, existingByCardCode, matchedIds);
+    if (matched) {
+      matchedIds.add(matched.id);
+      if (input.mode === 'replace') {
+        toUpdate.push({ existing: matched, input: prepared });
+      } else {
+        skippedExistingCount += 1;
+      }
+    } else {
+      toAdd.push(prepared);
+    }
+  }
+
+  let toDelete: Student[] = [];
+  if (input.mode === 'replace') {
+    toDelete = activeExisting.filter((student) => !matchedIds.has(student.id));
+  } else if (input.deleteExtraStudentIds && input.deleteExtraStudentIds.length > 0) {
+    const deleteSet = new Set(input.deleteExtraStudentIds);
+    toDelete = activeExisting.filter((student) => !matchedIds.has(student.id) && deleteSet.has(student.id));
+  }
+
+  return {
+    toAdd,
+    toUpdate,
+    toDelete,
+    skippedExistingCount,
+  };
 }

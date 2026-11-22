@@ -5,6 +5,7 @@ import { assertCanEditClassIn, canAccessClass, getStudentAccess, type StudentAcc
 import { newBaseFields, touchFields } from './records';
 import { prepareStudentInput, studentIdentityKey, validateStudentInput } from './studentRules';
 import type { SchoolClass, Student, StudentInput } from './types';
+import { planStudentImport, type StudentImportMode } from '@/modules/students/import/importRows';
 
 export interface StudentWorkspace {
   access: StudentAccess;
@@ -125,6 +126,103 @@ export async function importStudents(institutionId: string, rows: StudentInput[]
 
   if (records.length > 0) await db.students.bulkAdd(records);
   return records.length;
+}
+
+export interface ImportStudentsWithModeOptions {
+  mode: StudentImportMode;
+  deleteExtraStudentIds?: string[];
+}
+
+export interface ImportStudentsResult {
+  added: number;
+  updated: number;
+  skippedExisting: number;
+  deleted: number;
+}
+
+export async function importStudentsWithMode(
+  institutionId: string,
+  rows: StudentInput[],
+  actorId: string,
+  options: ImportStudentsWithModeOptions,
+): Promise<ImportStudentsResult> {
+  const access = await getStudentAccess(actorId);
+  const allActive = await listActiveStudents(institutionId);
+  const editableActive = allActive.filter((student) => canAccessClass(access, student.classId));
+
+  const preparedRows: StudentInput[] = [];
+  for (const rawRow of rows) {
+    const row = prepareStudentInput(rawRow);
+    assertCanEditClassIn(access, row.classId);
+    assertValidInput(row);
+    await assertClassIsActive(row.classId);
+    preparedRows.push(row);
+  }
+
+  const plan = planStudentImport({
+    existing: editableActive,
+    incomingRows: preparedRows,
+    mode: options.mode,
+    deleteExtraStudentIds: options.deleteExtraStudentIds,
+  });
+
+  // Verify access on any students marked for deletion
+  for (const student of plan.toDelete) {
+    assertCanEditClassIn(access, student.classId);
+  }
+
+  // Ensure cardCode uniqueness across the final active institution set
+  const deletedIds = new Set(plan.toDelete.map((item) => item.id));
+  const updatedById = new Map(plan.toUpdate.map((item) => [item.existing.id, item.input]));
+  const finalCardCodes = new Set<string>();
+
+  for (const student of allActive) {
+    if (deletedIds.has(student.id)) continue;
+    const override = updatedById.get(student.id);
+    const code = (override ? override.cardCode : student.cardCode)?.trim();
+    if (code) {
+      if (finalCardCodes.has(code)) throw new DomainError('students.cardCode.duplicate');
+      finalCardCodes.add(code);
+    }
+  }
+  for (const row of plan.toAdd) {
+    const code = row.cardCode?.trim();
+    if (code) {
+      if (finalCardCodes.has(code)) throw new DomainError('students.cardCode.duplicate');
+      finalCardCodes.add(code);
+    }
+  }
+
+  const now = new Date().toISOString();
+  const toPut: Student[] = [
+    ...plan.toUpdate.map(({ existing, input }) => ({
+      ...existing,
+      ...input,
+      ...touchFields(actorId),
+    })),
+    ...plan.toDelete.map((student) => ({
+      ...student,
+      deletedAt: now,
+      ...touchFields(actorId),
+    })),
+  ];
+
+  const toAddRecords: Student[] = plan.toAdd.map((row) => ({
+    ...newBaseFields(institutionId, actorId),
+    ...row,
+  }));
+
+  await db.transaction('rw', db.students, async () => {
+    if (toPut.length > 0) await db.students.bulkPut(toPut);
+    if (toAddRecords.length > 0) await db.students.bulkAdd(toAddRecords);
+  });
+
+  return {
+    added: toAddRecords.length,
+    updated: plan.toUpdate.length,
+    skippedExisting: plan.skippedExistingCount,
+    deleted: plan.toDelete.length,
+  };
 }
 
 export async function setStudentCardCode(studentId: string, cardCode: string, actorId: string): Promise<void> {
