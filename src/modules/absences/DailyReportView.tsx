@@ -23,6 +23,7 @@ import { ReportExportBar } from '@/modules/absences/ReportTableView';
 import { useSession } from '@/modules/auth/AuthContext';
 import { isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
 import { isIsoDate } from '@/utils/absences';
+import { buildContinuousParentRows, mergeParentCorrespondenceRows } from '@/utils/continuousAbsences';
 import { studentDayAbsences } from '@/utils/dailyPage1';
 import { computePage2 } from '@/utils/dailyPage2';
 import { exportDailyReportExcel } from '@/utils/dailyExcel';
@@ -185,6 +186,21 @@ export function DailyReportView({ data }: DailyReportViewProps) {
 
   const entryStats = validDate ? computeEntryStats(data.students, gateEntries, date) : null;
 
+  const autoParentRows = validDate
+    ? buildContinuousParentRows({
+        date,
+        continuousAbsences: data.continuousAbsences,
+        students: data.students,
+        classes: data.classes,
+        absences: data.studentAbsences,
+        defaultReason: t('absences.continuous.defaultReason'),
+      })
+    : [];
+
+  const effectiveParentRows = extras
+    ? mergeParentCorrespondenceRows(extras.parentRows, autoParentRows)
+    : [];
+
   const reportRender: DailyReportRender | null =
     extras && validDate && computed
       ? {
@@ -198,7 +214,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           },
           computed,
           wholeDayAbsences: absences.filter((item) => item.wholeDay || item.absentUntilEndOfDay),
-          parentRows: extras.parentRows,
+          parentRows: effectiveParentRows,
           observations: extras.observationsActions,
           plannedMeal: extras.plannedMeal,
           mealServed: extras.mealServed,
@@ -315,7 +331,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
       ) : null}
       {editing === 'parents' && extras ? (
         <ParentRowsEditor
-          rows={extras.parentRows}
+          rows={effectiveParentRows}
           students={studentOptions}
           absentToday={absences}
           onApply={(parentRows) => {

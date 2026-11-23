@@ -1,6 +1,8 @@
 import Dexie, { type Table } from 'dexie';
 import type {
+  AppNotification,
   CanteenEntry,
+  ContinuousAbsence,
   DailyReportRecord,
   EntryDayClosure,
   GateEntry,
@@ -37,6 +39,7 @@ class SchoolDatabase extends Dexie {
   teachers!: Table<Teacher, string>;
   rooms!: Table<Room, string>;
   studentAbsences!: Table<StudentAbsence, string>;
+  continuousAbsences!: Table<ContinuousAbsence, string>;
   teacherAbsences!: Table<TeacherAbsence, string>;
   outbox!: Table<OutboxEntry, string>;
   dailyReports!: Table<DailyReportRecord, string>;
@@ -45,6 +48,7 @@ class SchoolDatabase extends Dexie {
   libraryFiles!: Table<LibraryFile, string>;
   entries!: Table<GateEntry, string>;
   entryClosures!: Table<EntryDayClosure, string>;
+  notifications!: Table<AppNotification, string>;
 
   constructor() {
     super('school-admin');
@@ -89,6 +93,20 @@ class SchoolDatabase extends Dexie {
       .stores({
         entries: 'id, institutionId, date, [date+studentId]',
         entryClosures: 'id, institutionId, date',
+      })
+      .upgrade(() => {
+        // Non-destructive upgrade: existing tables and records remain intact.
+      });
+    this.version(11)
+      .stores({
+        continuousAbsences: 'id, institutionId, studentId, classId',
+      })
+      .upgrade(() => {
+        // Non-destructive upgrade: existing tables and records remain intact.
+      });
+    this.version(12)
+      .stores({
+        notifications: 'id, institutionId, kind, read, resolved, createdAt',
       })
       .upgrade(() => {
         // Non-destructive upgrade: existing tables and records remain intact.

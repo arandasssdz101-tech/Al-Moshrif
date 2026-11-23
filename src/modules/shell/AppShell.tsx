@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState } from 'react';
-import { ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, DoorOpen, GraduationCap, Home, LayoutDashboard, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
+import { Bell, ChartBar as BarChart3, BookOpen, CalendarDays, ClipboardList, DoorOpen, GraduationCap, Home, LayoutDashboard, QrCode, Search, Settings, Users, Utensils } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppLogo } from '@/components/AppLogo';
 import { BottomTabs, type TabItem } from '@/components/BottomTabs';
@@ -7,6 +7,7 @@ import { LanguageToggle } from '@/components/LanguageToggle';
 import { PWAInstallButton } from '@/components/PWAInstallButton';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LoadingState } from '@/components/ui/StatusBlock';
+import { countUnreadNotifications } from '@/db/supervisorBackup';
 import { AbsencesScreen } from '@/modules/absences/AbsencesScreen';
 import { useSession } from '@/modules/auth/AuthContext';
 import { StudentCardsScreen } from '@/modules/cards/StudentCardsScreen';
@@ -14,6 +15,7 @@ import { HomeScreen } from '@/modules/home/HomeScreen';
 import { SettingsScreen } from '@/modules/settings/SettingsScreen';
 import { StatisticsScreen } from '@/modules/statistics/StatisticsScreen';
 import { StudentsScreen } from '@/modules/students/StudentsScreen';
+import { NotificationsModal } from '@/modules/supervisors/NotificationsModal';
 import { SupervisorsScreen } from '@/modules/supervisors/SupervisorsScreen';
 import { TimetableScreen } from '@/modules/timetable/TimetableScreen';
 import { SearchScreen } from '@/modules/search/SearchScreen';
@@ -33,9 +35,24 @@ export function AppShell() {
   const { t } = useTranslation();
   const { user, institution } = useSession();
   const [tab, setTab] = useState<TabId>('home');
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const isHead = user.role === 'head';
   const hasCanteen = isHead || user.permissions !== null;
   const hasEntry = isHead || user.permissions !== null;
+
+  const refreshUnread = useCallback(async () => {
+    try {
+      const count = await countUnreadNotifications(institution.id);
+      setUnreadNotifications(count);
+    } catch {
+      // ignore transient read errors
+    }
+  }, [institution.id]);
+
+  useEffect(() => {
+    void refreshUnread();
+  }, [refreshUnread, tab]);
 
   const tabs: TabItem<TabId>[] = [
     { id: 'home', label: t('nav.home'), icon: Home },
@@ -65,6 +82,19 @@ export function AppShell() {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setNotifOpen(true)}
+              aria-label={t('notifications.openAria')}
+              className="relative inline-flex size-10 items-center justify-center rounded-xl bg-neutral-100 text-neutral-700 transition hover:bg-neutral-200/80 active:scale-[0.97]"
+            >
+              <Bell className="size-5" aria-hidden />
+              {unreadNotifications > 0 ? (
+                <span className="absolute -end-1 -top-1 flex min-w-5 items-center justify-center rounded-full bg-danger-600 px-1 text-[11px] font-bold leading-5 text-white">
+                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                </span>
+              ) : null}
+            </button>
             <PWAInstallButton />
             <ThemeToggle />
             <LanguageToggle />
@@ -93,6 +123,16 @@ export function AppShell() {
       </main>
 
       <BottomTabs items={tabs} active={tab} onChange={setTab} />
+      <NotificationsModal
+        open={notifOpen}
+        onClose={() => {
+          setNotifOpen(false);
+          void refreshUnread();
+        }}
+        onChanged={() => {
+          void refreshUnread();
+        }}
+      />
     </div>
   );
 }

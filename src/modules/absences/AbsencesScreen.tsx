@@ -4,13 +4,14 @@ import { ErrorState, LoadingState } from '@/components/ui/StatusBlock';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { loadAbsenceWorkspace } from '@/db/absences';
 import { useSession } from '@/modules/auth/AuthContext';
+import { ContinuousAbsencesView } from '@/modules/absences/ContinuousAbsencesView';
 import { ReportsView } from '@/modules/absences/ReportsView';
 import { StudentAbsencesView } from '@/modules/absences/StudentAbsencesView';
 import { TeacherAbsencesView } from '@/modules/absences/TeacherAbsencesView';
 import { errorKey } from '@/utils/errors';
 import { useAsyncData } from '@/utils/useAsyncData';
 
-type Section = 'students' | 'teachers' | 'reports';
+type Section = 'students' | 'continuous' | 'teachers' | 'reports';
 
 export function AbsencesScreen() {
   const { t } = useTranslation();
@@ -28,6 +29,7 @@ export function AbsencesScreen() {
   const activeSection: Section = !isHead && section === 'teachers' ? 'students' : section;
   const options: { id: Section; label: string }[] = [
     { id: 'students', label: t('absences.sections.students') },
+    { id: 'continuous', label: t('absences.sections.continuous') },
     ...(isHead ? [{ id: 'teachers' as const, label: t('absences.sections.teachers') }] : []),
     { id: 'reports', label: t('absences.sections.reports') },
   ];
@@ -47,6 +49,7 @@ export function AbsencesScreen() {
       <SegmentedControl<Section> options={options} value={activeSection} onChange={handleSectionChange} />
 
       {activeSection === 'students' ? <StudentAbsencesView data={data} onSaved={workspace.reload} /> : null}
+      {activeSection === 'continuous' ? <ContinuousAbsencesView data={data} onChanged={workspace.reload} /> : null}
       {activeSection === 'teachers' ? <TeacherAbsencesView data={data} onChanged={workspace.reload} /> : null}
       {activeSection === 'reports' ? <ReportsView data={data} /> : null}
     </div>

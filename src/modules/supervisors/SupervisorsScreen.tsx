@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { CheckCircle2, FileSpreadsheet, UserPlus, Users } from 'lucide-react';
+import { CheckCircle2, FileSpreadsheet, GitMerge, UserPlus, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AddSupervisorModal } from './AddSupervisorModal';
+import { BatchMergeCenterScreen } from './BatchMergeCenterScreen';
 import { SupervisorPermissionsScreen } from './SupervisorPermissionsScreen';
 import { SupervisorRow } from './SupervisorRow';
 import { Button } from '@/components/ui/Button';
@@ -25,6 +26,7 @@ export function SupervisorsScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [mergeCenterOpen, setMergeCenterOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -38,6 +40,17 @@ export function SupervisorsScreen() {
     (item.permissions?.assignedClasses ?? [])
       .map((id) => classNameById.get(id))
       .filter((name): name is string => Boolean(name));
+
+  if (mergeCenterOpen) {
+    return (
+      <BatchMergeCenterScreen
+        onBack={() => {
+          setMergeCenterOpen(false);
+          supervisors.reload();
+        }}
+      />
+    );
+  }
 
   if (selectedId) {
     return (
@@ -126,6 +139,13 @@ export function SupervisorsScreen() {
             icon={<UserPlus className="size-5" aria-hidden />}
           >
             {t('supervisors.addSupervisor')}
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setMergeCenterOpen(true)}
+            icon={<GitMerge className="size-5" aria-hidden />}
+          >
+            {t('supervisorSync.openMergeCenter')}
           </Button>
           {data && data.length > 0 ? (
             <Button variant="secondary" onClick={handleExport} icon={<FileSpreadsheet className="size-5" aria-hidden />}>

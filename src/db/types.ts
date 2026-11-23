@@ -140,10 +140,21 @@ export interface StudentAbsenceInput {
   subject: string;
   justified: boolean;
   status?: 'absent' | 'late';
-  source?: 'manual' | 'gate';
+  source?: 'manual' | 'gate' | 'continuous';
+  continuousAbsenceId?: string;
 }
 
 export interface StudentAbsence extends BaseRecord, StudentAbsenceInput {}
+
+export interface ContinuousAbsence extends BaseRecord {
+  studentId: string;
+  classId: string;
+  startDate: string;
+  endDate: string | null;
+  reason: string;
+  justified: boolean;
+  struckAt?: string | null;
+}
 
 export interface TeacherAbsenceLesson {
   period: number;
@@ -282,4 +293,20 @@ export interface EntryDayClosure {
   autoAbsencesSyncedAt?: string | null;
   updatedAt: string;
 }
+
+export type NotificationKind = 'room_conflict' | 'merge_summary' | 'info';
+
+export interface AppNotification extends BaseRecord {
+  kind: NotificationKind;
+  title: string;
+  message: string;
+  read: boolean;
+  resolved: boolean;
+  relatedSlotId?: string | null;
+  relatedRoomId?: string | null;
+  day?: number | null;
+  period?: number | null;
+  meta?: Record<string, string | number | null>;
+}
+
 

@@ -1,24 +1,40 @@
 import { useState } from 'react';
-import { ChevronRight, LogOut } from 'lucide-react';
+import { ChevronRight, GitMerge, LogOut } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { LanguageSwitch } from '@/components/LanguageSwitch';
 import { Button } from '@/components/ui/Button';
 import { useSession } from '@/modules/auth/AuthContext';
+import { BatchMergeCenterScreen } from '@/modules/supervisors/BatchMergeCenterScreen';
+import { SupervisorBackupCard } from '@/modules/supervisors/SupervisorBackupCard';
 import { AccountSection } from './AccountSection';
 import { AppearanceSection } from './AppearanceSection';
 import { InstitutionSettingsScreen } from './InstitutionSettingsScreen';
 
-type SettingsView = 'main' | 'institution';
+type SettingsView = 'main' | 'institution' | 'mergeCenter';
 
 export function SettingsScreen() {
   const [view, setView] = useState<SettingsView>('main');
   if (view === 'institution') {
     return <InstitutionSettingsScreen onBack={() => setView('main')} />;
   }
-  return <SettingsMain onOpenInstitution={() => setView('institution')} />;
+  if (view === 'mergeCenter') {
+    return <BatchMergeCenterScreen onBack={() => setView('main')} />;
+  }
+  return (
+    <SettingsMain
+      onOpenInstitution={() => setView('institution')}
+      onOpenMergeCenter={() => setView('mergeCenter')}
+    />
+  );
 }
 
-function SettingsMain({ onOpenInstitution }: { onOpenInstitution: () => void }) {
+function SettingsMain({
+  onOpenInstitution,
+  onOpenMergeCenter,
+}: {
+  onOpenInstitution: () => void;
+  onOpenMergeCenter: () => void;
+}) {
   const { t } = useTranslation();
   const { user, signOut } = useSession();
   const isHead = user.role === 'head';
@@ -30,6 +46,25 @@ function SettingsMain({ onOpenInstitution }: { onOpenInstitution: () => void }) 
         <h1 className="text-3xl text-neutral-900">{t('settings.title')}</h1>
         <p className="text-base text-neutral-600">{t('settings.subtitle')}</p>
       </header>
+
+      <SupervisorBackupCard />
+
+      {isHead ? (
+        <button
+          type="button"
+          onClick={onOpenMergeCenter}
+          className="group flex min-h-20 w-full items-center gap-4 rounded-2xl bg-white p-5 text-start shadow-sm ring-1 ring-neutral-200 transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-700">
+            <GitMerge className="size-5" aria-hidden />
+          </span>
+          <span className="flex flex-1 flex-col gap-1">
+            <span className="text-lg font-bold text-neutral-900">{t('supervisorSync.openMergeCenter')}</span>
+            <span className="text-sm text-neutral-600">{t('supervisorSync.openMergeCenterHint')}</span>
+          </span>
+          <ChevronRight className="size-5 shrink-0 text-neutral-400 transition group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5" aria-hidden />
+        </button>
+      ) : null}
 
       <AccountSection />
 

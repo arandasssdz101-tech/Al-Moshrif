@@ -1,7 +1,9 @@
 import { DomainError } from '@/utils/errors';
 import { db } from './database';
 import type {
+  AppNotification,
   CanteenEntry,
+  ContinuousAbsence,
   DailyReportRecord,
   EntryDayClosure,
   GateEntry,
@@ -41,11 +43,13 @@ interface BackupFile {
   teachers: Teacher[];
   rooms: Room[];
   studentAbsences: StudentAbsence[];
+  continuousAbsences?: ContinuousAbsence[];
   teacherAbsences: TeacherAbsence[];
   dailyReports?: DailyReportRecord[];
   canteenEntries?: CanteenEntry[];
   entries?: GateEntry[];
   entryClosures?: EntryDayClosure[];
+  notifications?: AppNotification[];
   libraryMeta?: LibraryMeta[];
   libraryFiles?: SerializedLibraryFile[];
 }
@@ -59,11 +63,13 @@ export interface BackupData {
   teachers: Teacher[];
   rooms: Room[];
   studentAbsences: StudentAbsence[];
+  continuousAbsences?: ContinuousAbsence[];
   teacherAbsences: TeacherAbsence[];
   dailyReports: DailyReportRecord[];
   canteenEntries: CanteenEntry[];
   entries: GateEntry[];
   entryClosures: EntryDayClosure[];
+  notifications?: AppNotification[];
   libraryMeta?: LibraryMeta[];
   libraryFiles?: SerializedLibraryFile[];
 }
@@ -105,11 +111,13 @@ export async function exportBackup(options: ExportBackupOptions = {}): Promise<s
     teachers: await db.teachers.toArray(),
     rooms: await db.rooms.toArray(),
     studentAbsences: await db.studentAbsences.toArray(),
+    continuousAbsences: await db.continuousAbsences.toArray(),
     teacherAbsences: await db.teacherAbsences.toArray(),
     dailyReports: await db.dailyReports.toArray(),
     canteenEntries: await db.canteenEntries.toArray(),
     entries: await db.entries.toArray(),
     entryClosures: await db.entryClosures.toArray(),
+    notifications: await db.notifications.toArray(),
   };
 
   if (includeLibrary) {
@@ -189,11 +197,13 @@ export function parseBackup(text: string): BackupData | null {
   const teachers = file.teachers ?? [];
   const rooms = file.rooms ?? [];
   const studentAbsences = file.studentAbsences ?? [];
+  const continuousAbsences = file.continuousAbsences ?? [];
   const teacherAbsences = file.teacherAbsences ?? [];
   const dailyReports = file.dailyReports ?? [];
   const canteenEntries = file.canteenEntries ?? [];
   const entries = file.entries ?? [];
   const entryClosures = file.entryClosures ?? [];
+  const notifications = file.notifications ?? [];
   if (
     !isRecordList(file.institutions) ||
     !isRecordList(file.users) ||
@@ -203,11 +213,13 @@ export function parseBackup(text: string): BackupData | null {
     !isRecordList(teachers) ||
     !isRecordList(rooms) ||
     !isRecordList(studentAbsences) ||
+    !isRecordList(continuousAbsences) ||
     !isRecordList(teacherAbsences) ||
     !isRecordList(dailyReports) ||
     !isRecordList(canteenEntries) ||
     !isRecordList(entries) ||
-    !isRecordList(entryClosures)
+    !isRecordList(entryClosures) ||
+    !isRecordList(notifications)
   ) {
     return null;
   }
@@ -228,11 +240,13 @@ export function parseBackup(text: string): BackupData | null {
     teachers: teachers as Teacher[],
     rooms: rooms as Room[],
     studentAbsences: studentAbsences as StudentAbsence[],
+    continuousAbsences: continuousAbsences as ContinuousAbsence[],
     teacherAbsences: teacherAbsences as TeacherAbsence[],
     dailyReports: dailyReports as DailyReportRecord[],
     canteenEntries: canteenEntries as CanteenEntry[],
     entries: entries as GateEntry[],
     entryClosures: entryClosures as EntryDayClosure[],
+    notifications: notifications as AppNotification[],
     ...(file.libraryMeta !== undefined ? { libraryMeta: file.libraryMeta } : {}),
     ...(file.libraryFiles !== undefined ? { libraryFiles: file.libraryFiles } : {}),
   };
@@ -325,11 +339,13 @@ export async function replaceAllData(data: BackupData): Promise<void> {
     db.teachers,
     db.rooms,
     db.studentAbsences,
+    db.continuousAbsences,
     db.teacherAbsences,
     db.dailyReports,
     db.canteenEntries,
     db.entries,
     db.entryClosures,
+    db.notifications,
     ...(hasLibrary ? [db.libraryMeta, db.libraryFiles] : []),
   ];
   await db.transaction('rw', tables, async () => {
@@ -342,6 +358,9 @@ export async function replaceAllData(data: BackupData): Promise<void> {
     await db.teachers.bulkPut(data.teachers);
     await db.rooms.bulkPut(data.rooms);
     await db.studentAbsences.bulkPut(data.studentAbsences);
+    if (data.continuousAbsences?.length) {
+      await db.continuousAbsences.bulkPut(data.continuousAbsences);
+    }
     await db.teacherAbsences.bulkPut(data.teacherAbsences);
     await db.dailyReports.bulkPut(data.dailyReports);
     await db.canteenEntries.bulkPut(data.canteenEntries);
@@ -350,6 +369,9 @@ export async function replaceAllData(data: BackupData): Promise<void> {
     }
     if (data.entryClosures?.length) {
       await db.entryClosures.bulkPut(data.entryClosures);
+    }
+    if (data.notifications?.length) {
+      await db.notifications.bulkPut(data.notifications);
     }
 
     if (hasLibrary) {

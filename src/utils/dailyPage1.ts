@@ -31,6 +31,7 @@ export interface StudentDayAbsenceIndexEntry {
   periods: Set<number>;
   justifiedPeriods: Set<number>;
   hasGateAbsence: boolean;
+  hasContinuousAbsence: boolean;
 }
 
 export interface StudentDayEvaluation {
@@ -59,12 +60,14 @@ export function indexActiveAbsencesForDate(
         periods: new Set<number>(),
         justifiedPeriods: new Set<number>(),
         hasGateAbsence: false,
+        hasContinuousAbsence: false,
       };
       byStudent.set(record.studentId, entry);
     }
     entry.periods.add(period);
     if (record.justified) entry.justifiedPeriods.add(period);
     if (record.source === 'gate') entry.hasGateAbsence = true;
+    if (record.source === 'continuous') entry.hasContinuousAbsence = true;
   }
   return byStudent;
 }
@@ -97,8 +100,8 @@ export function evaluateStudentDayAbsence(
     };
   }
 
-  // Fallback when a class has no timetable entered for the weekday, yet Gate Entry closed the day with a gate absence
-  const wholeDay = entry.hasGateAbsence;
+  // Fallback when a class has no timetable entered for the weekday, yet Gate Entry or Continuous Absence recorded a full-day absence
+  const wholeDay = entry.hasGateAbsence || entry.hasContinuousAbsence;
   return {
     totals,
     periods,

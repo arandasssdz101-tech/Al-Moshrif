@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { CalendarOff, CheckCircle2, ClipboardList, QrCode, Save, ScanLine } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
@@ -13,13 +13,14 @@ import {
 import { isCardAbsenceEnabled, updateCardAbsenceEnabled } from '@/db/institutions';
 import type { Student, StudentAbsence } from '@/db/types';
 import { useSession } from '@/modules/auth/AuthContext';
+import { GateSyncAndResetPanel } from '@/modules/absences/GateSyncAndResetPanel';
 import { CardScanner } from '@/modules/canteen/CardScanner';
 import { playScanFeedback } from '@/modules/canteen/scanFeedback';
 import { classLessonsForDay, isIsoDate, summarizeStudentAbsences, weekdayOfDate, type ClassLesson } from '@/utils/absences';
 import { PERIODS } from '@/utils/schedule';
 import { todayIso } from '@/utils/dates';
 import { errorKey } from '@/utils/errors';
-import { currentPeriodNumber, matchStudentFromScan, studentFullName } from '@/utils/studentQr';
+import { currentPeriodNumber, matchStudentFromScan } from '@/utils/studentQr';
 
 type DraftEntries = Map<string, StudentAbsenceEntry>;
 
@@ -127,7 +128,7 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
       const classLabel = data.classes.find((c) => c.id === matched.classId)?.name ?? '';
       setScanNotice(
         t('absences.cardAbsence.recordedSuccess', {
-          name: studentFullName(matched),
+          name: `${matched.lastName} ${matched.firstName}`,
           className: classLabel,
           period: scanPeriod,
         }),
@@ -192,6 +193,18 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
           className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
         />
       </label>
+
+      {/* Sync with Gate Card Entry + Reset Today's Absences (Full / Manual) */}
+      <GateSyncAndResetPanel
+        data={data}
+        date={date}
+        activeClassId={activeClassId}
+        activeClassName={data.classes.find((schoolClass) => schoolClass.id === activeClassId)?.name ?? ''}
+        onChanged={() => {
+          setScanVersion((v) => v + 1);
+          onSaved();
+        }}
+      />
 
       {/* Card-based absence toggle & QR scanner bar */}
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4">
@@ -345,6 +358,15 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
 
+  const incomingSnapshot = snapshot([...toDraft(records).values()]);
+  useEffect(() => {
+    if (incomingSnapshot === savedSnapshot) return;
+    const nextDraft = toDraft(records);
+    setDraft(nextDraft);
+    setSavedSnapshot(incomingSnapshot);
+    setJustSaved(false);
+  }, [incomingSnapshot, savedSnapshot, records]);
+
   const entries = [...draft.values()];
   const dirty = snapshot(entries) !== savedSnapshot;
   const hoursByStudent = summarizeStudentAbsences(
@@ -415,7 +437,7 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
     }
   };
 
-  const gridTemplateColumns = `7rem repeat(${lessons.length}, 7rem)`;
+  const gridTemplateColumns = `9.5rem repeat(${lessons.length}, 7rem)`;
   const gridStyle: CSSProperties = { gridTemplateColumns };
   const stickyColumnClass = 'sticky z-20 bg-white ltr:left-0 rtl:right-0';
 
@@ -456,9 +478,10 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
                 const hours = hoursByStudent.get(student.id)?.hours ?? 0;
                 return (
                   <li key={student.id} className="grid min-w-max items-stretch transition hover:bg-neutral-50" style={gridStyle}>
-                    <div className={`${stickyColumnClass} flex min-h-[4.75rem] flex-col justify-center border-e border-neutral-200 px-3 py-3`}>
-                      <p className="max-w-[7rem] truncate text-sm font-semibold text-neutral-900">
-                        {student.firstName} {student.lastName}
+                    <div className={`${stickyColumnClass} flex min-h-[4.75rem] flex-col justify-center border-e border-neutral-200 px-3 py-2.5`}>
+                      <p className="break-words text-sm leading-snug text-neutral-900">
+                        <span className="font-bold">{student.lastName}</span>{' '}
+                        <span className="font-medium text-neutral-700">{student.firstName}</span>
                       </p>
                       <p className="text-[10px] text-neutral-500">{t('absences.hours', { count: hours })}</p>
                     </div>
@@ -471,7 +494,7 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
                             type="button"
                             disabled={!canEdit}
                             aria-pressed={isAbsent}
-                            aria-label={`${student.firstName} ${student.lastName}, ${t('absences.period', { number: lesson.period })}`}
+                            aria-label={`${student.lastName} ${student.firstName}, ${t('absences.period', { number: lesson.period })}`}
                             onPointerDown={() => startPress(student.id, lesson.period)}
                             onPointerUp={() => finishPress(student.id, lesson.period)}
                             onPointerCancel={cancelPress}

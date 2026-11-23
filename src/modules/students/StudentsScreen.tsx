@@ -62,7 +62,9 @@ export function StudentsScreen({ onOpenCards }: StudentsScreenProps = {}) {
     return students.filter(
       (student) =>
         (classFilter === null || student.classId === classFilter) &&
-        (needle === '' || normalizeText(`${student.firstName} ${student.lastName}`).includes(needle)),
+        (needle === '' ||
+          normalizeText(`${student.lastName} ${student.firstName}`).includes(needle) ||
+          normalizeText(`${student.firstName} ${student.lastName}`).includes(needle)),
     );
   }, [students, query, classFilter]);
 
@@ -88,7 +90,7 @@ export function StudentsScreen({ onOpenCards }: StudentsScreenProps = {}) {
           setView({ kind: 'list' });
           setUndo({
             id: Date.now(),
-            message: t('students.deleted', { name: `${deleted.firstName} ${deleted.lastName}` }),
+            message: t('students.deleted', { name: `${deleted.lastName} ${deleted.firstName}` }),
             onUndo: () => {
               restoreStudent(deleted.id, user.id)
                 .then(() => workspace.reload())

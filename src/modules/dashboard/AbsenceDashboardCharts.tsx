@@ -1,9 +1,8 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import {
   Area,
   AreaChart,
   Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -457,18 +456,50 @@ export function MonthlyAbsenceChart({
   );
 }
 
+function computeAxisScale(
+  rawMax: number,
+  integerOnly: boolean,
+): { max: number; ticks: number[] } {
+  const tickCount = 4;
+  if (rawMax <= 0 || !Number.isFinite(rawMax)) {
+    return { max: tickCount, ticks: [0, 1, 2, 3, 4] };
+  }
+
+  const roughStep = rawMax / tickCount;
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep));
+  const normalized = roughStep / magnitude;
+  const candidates = [1, 1.5, 2, 2.5, 3, 4, 5, 10];
+  let step = (candidates.find((c) => c >= normalized) ?? 10) * magnitude;
+
+  if (integerOnly) {
+    step = Math.max(1, Math.ceil(step));
+  }
+
+  const roundTick = (val: number) => Math.round(val * 100) / 100;
+  const max = roundTick(step * tickCount);
+  const ticks = Array.from({ length: tickCount + 1 }, (_, i) => roundTick(step * i));
+  return { max, ticks };
+}
+
 export function ClassAbsenceComparisonChart({
   data,
   useHoursFallback,
 }: ClassComparisonChartProps) {
   const { t, i18n } = useTranslation();
+  const dir = i18n.dir();
   const topClasses = data.slice(0, 12);
-  const chartHeight = Math.max(220, topClasses.length * 36 + 32);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const chartData = topClasses.map((row) => ({
     ...row,
     displayValue: useHoursFallback ? row.absentHours : (row.rate ?? 0),
   }));
+
+  const rawMax = chartData.reduce((acc, row) => Math.max(acc, row.displayValue), 0);
+  const { max: axisMax, ticks } = computeAxisScale(rawMax, useHoursFallback);
+
+  const activeRow =
+    selectedId !== null ? (chartData.find((row) => row.classId === selectedId) ?? null) : null;
 
   const barColorFor = (row: ClassAbsencePoint): string => {
     if (useHoursFallback || row.rate === null) return COLOR_PRIMARY;
@@ -477,8 +508,21 @@ export function ClassAbsenceComparisonChart({
     return COLOR_PRIMARY;
   };
 
+  const formatTickLabel = (val: number): string => {
+    if (useHoursFallback) return String(val);
+    return `${val}%`;
+  };
+
+  const formatRowValue = (row: ClassAbsencePoint & { displayValue: number }): string => {
+    if (useHoursFallback) return `${row.absentHours}`;
+    return formatPercent(row.rate);
+  };
+
   return (
-    <section className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-5">
+    <section
+      dir={dir}
+      className="flex flex-col gap-4 rounded-2xl border border-neutral-200 bg-white p-5"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-base font-bold text-neutral-900">
           {t('dashboard.classChartTitle')}
@@ -500,48 +544,155 @@ export function ClassAbsenceComparisonChart({
         />
       ) : null}
 
-      <div className="w-full" style={{ height: chartHeight }} dir="ltr">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            layout="vertical"
-            margin={{ top: 4, right: 20, left: 8, bottom: 4 }}
+      {/* Native RTL/LTR coordinate bar chart — avoids SVG BiDi scrambling on Arabic + digit class names */}
+      <div className="flex flex-col">
+        <div className="relative flex flex-col">
+          {/* Background coordinate gridlines aligned pixel-for-pixel to the plot track */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 inset-x-0 grid grid-cols-[5.25rem_1fr_3.25rem] items-stretch gap-x-2.5 sm:grid-cols-[7.25rem_1fr_3.75rem]"
           >
-            <CartesianGrid strokeDasharray="3 3" stroke={COLOR_GRID} horizontal={false} />
-            <XAxis
-              type="number"
-              tick={{ fill: COLOR_AXIS, fontSize: 11 }}
-              axisLine={{ stroke: COLOR_GRID }}
-              tickLine={false}
-              tickFormatter={(val: number) => (useHoursFallback ? `${val}` : `${val}%`)}
-            />
-            <YAxis
-              type="category"
-              dataKey="className"
-              tick={{ fill: COLOR_AXIS, fontSize: 12 }}
-              axisLine={false}
-              tickLine={false}
-              width={64}
-            />
-            <Tooltip
-              cursor={{ fill: 'rgb(var(--color-neutral-100) / 0.6)' }}
-              content={(props) => (
-                <ClassTooltip
-                  active={props.active}
-                  payload={props.payload as unknown as readonly ClassTooltipEntry[] | undefined}
-                  dir={i18n.dir()}
-                  useHoursFallback={useHoursFallback}
-                />
-              )}
-            />
-            <Bar dataKey="displayValue" radius={[0, 6, 6, 0]} maxBarSize={22}>
-              {chartData.map((entry) => (
-                <Cell key={entry.classId} fill={barColorFor(entry)} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+            <div />
+            <div className="relative border-s border-neutral-300">
+              {ticks.slice(1).map((tick) => {
+                const pct = (tick / axisMax) * 100;
+                return (
+                  <span
+                    key={tick}
+                    className="absolute inset-y-0 border-s border-dashed border-neutral-200"
+                    style={{ insetInlineStart: `${pct}%` }}
+                  />
+                );
+              })}
+            </div>
+            <div />
+          </div>
+
+          {/* Class rows */}
+          <ul className="relative flex flex-col gap-1.5 py-1">
+            {chartData.map((row) => {
+              const widthPct =
+                axisMax > 0 ? Math.min(100, Math.max(0, (row.displayValue / axisMax) * 100)) : 0;
+              const isSelected = activeRow?.classId === row.classId;
+              const barColor = barColorFor(row);
+
+              return (
+                <li key={row.classId}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedId((prev) => (prev === row.classId ? null : row.classId))
+                    }
+                    aria-pressed={isSelected}
+                    className={`grid w-full grid-cols-[5.25rem_1fr_3.25rem] items-center gap-x-2.5 rounded-lg py-1 text-start transition sm:grid-cols-[7.25rem_1fr_3.75rem] ${
+                      isSelected ? 'bg-neutral-100/90' : 'hover:bg-neutral-50'
+                    }`}
+                  >
+                    <span
+                      title={row.className}
+                      className="truncate pe-1 text-end text-xs font-semibold text-neutral-700 sm:text-sm"
+                    >
+                      {row.className}
+                    </span>
+
+                    <div className="relative flex h-6 items-center">
+                      {widthPct > 0 ? (
+                        <div
+                          className="h-5 rounded-e-md transition-all duration-300"
+                          style={{
+                            width: `${Math.max(widthPct, 2)}%`,
+                            backgroundColor: barColor,
+                          }}
+                        />
+                      ) : (
+                        <div className="h-5 w-1 rounded-e-sm bg-neutral-200" />
+                      )}
+                    </div>
+
+                    <span
+                      dir="ltr"
+                      className="text-end text-xs font-semibold tabular-nums text-neutral-700"
+                    >
+                      {formatRowValue(row)}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* X-axis baseline & numeric ticks */}
+        <div className="grid grid-cols-[5.25rem_1fr_3.25rem] items-start gap-x-2.5 sm:grid-cols-[7.25rem_1fr_3.75rem]">
+          <div />
+          <div className="relative border-t border-neutral-300 pt-1.5">
+            <div className="relative h-4">
+              {ticks.map((tick, index) => {
+                const pct = (tick / axisMax) * 100;
+                const isFirst = index === 0;
+                const isLast = index === ticks.length - 1;
+                const translateClass = isFirst
+                  ? ''
+                  : isLast
+                    ? '-translate-x-full rtl:translate-x-full'
+                    : '-translate-x-1/2 rtl:translate-x-1/2';
+
+                return (
+                  <span
+                    key={tick}
+                    dir="ltr"
+                    className={`absolute top-0 text-[11px] tabular-nums text-neutral-500 ${translateClass}`}
+                    style={{ insetInlineStart: `${pct}%` }}
+                  >
+                    {formatTickLabel(tick)}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+          <div />
+        </div>
       </div>
+
+      {/* Selected class detail card */}
+      {activeRow ? (
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3.5 text-xs animate-fade-in">
+          <div className="mb-2 flex items-center justify-between gap-3 border-b border-neutral-200/80 pb-2">
+            <span className="text-sm font-bold text-neutral-900">{activeRow.className}</span>
+            <span className="tabular-nums text-neutral-500">
+              {t('dashboard.studentsCountInline', { count: activeRow.studentCount })}
+            </span>
+          </div>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 sm:grid-cols-4">
+            {!useHoursFallback ? (
+              <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
+                <dt className="text-neutral-500">{t('dashboard.absenceRateLabel')}</dt>
+                <dd className="font-bold tabular-nums text-neutral-900">
+                  {formatPercent(activeRow.rate)}
+                </dd>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
+              <dt className="text-neutral-500">{t('dashboard.absentHoursLabel')}</dt>
+              <dd className="font-semibold tabular-nums text-neutral-900">
+                {activeRow.absentHours}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
+              <dt className="text-danger-700">{t('dashboard.unjustified')}</dt>
+              <dd className="font-semibold tabular-nums text-danger-700">
+                {activeRow.unjustifiedHours}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-2 sm:flex-col sm:items-start">
+              <dt className="text-secondary-700">{t('dashboard.justified')}</dt>
+              <dd className="font-semibold tabular-nums text-secondary-700">
+                {activeRow.justifiedHours}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -620,59 +771,6 @@ function PeriodTooltip({
   );
 }
 
-interface ClassTooltipEntry {
-  payload?: ClassAbsencePoint;
-}
-
-function ClassTooltip({
-  active,
-  payload,
-  dir,
-  useHoursFallback,
-}: {
-  active?: boolean;
-  payload?: readonly ClassTooltipEntry[];
-  dir: 'rtl' | 'ltr';
-  useHoursFallback: boolean;
-}) {
-  const { t } = useTranslation();
-  const row = payload?.[0]?.payload;
-  if (!active || !row) return null;
-
-  return (
-    <div
-      dir={dir}
-      className="min-w-44 rounded-xl border border-neutral-200 bg-white p-3 text-xs shadow-lg"
-    >
-      <div className="mb-2 flex items-center justify-between gap-3 border-b border-neutral-100 pb-1.5">
-        <span className="font-bold text-neutral-900">{row.className}</span>
-        <span className="tabular-nums text-neutral-500">
-          {t('dashboard.studentsCountInline', { count: row.studentCount })}
-        </span>
-      </div>
-      <dl className="flex flex-col gap-1.5">
-        {!useHoursFallback ? (
-          <div className="flex items-center justify-between gap-4">
-            <dt className="text-neutral-500">{t('dashboard.absenceRateLabel')}</dt>
-            <dd className="font-bold tabular-nums text-neutral-900">{formatPercent(row.rate)}</dd>
-          </div>
-        ) : null}
-        <div className="flex items-center justify-between gap-4">
-          <dt className="text-neutral-500">{t('dashboard.absentHoursLabel')}</dt>
-          <dd className="font-semibold tabular-nums text-neutral-900">{row.absentHours}</dd>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <dt className="text-danger-700">{t('dashboard.unjustified')}</dt>
-          <dd className="font-semibold tabular-nums text-danger-700">{row.unjustifiedHours}</dd>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <dt className="text-secondary-700">{t('dashboard.justified')}</dt>
-          <dd className="font-semibold tabular-nums text-secondary-700">{row.justifiedHours}</dd>
-        </div>
-      </dl>
-    </div>
-  );
-}
 
 function ChartLegend({
   items,

@@ -88,6 +88,7 @@ export async function updateStudent(studentId: string, rawInput: StudentInput, a
   await assertClassIsActive(input.classId);
   await assertNoDuplicate(student.institutionId, input, studentId);
   await assertNoDuplicateCardCode(student.institutionId, input.cardCode, studentId);
+  await db.students.put({ ...student, ...input, ...touchFields(actorId) });
 }
 
 export async function deleteStudent(studentId: string, actorId: string): Promise<void> {

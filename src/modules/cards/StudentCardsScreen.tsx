@@ -71,11 +71,16 @@ export function StudentCardsScreen() {
     [data, today],
   );
   const classNameById = useMemo(() => new Map(classes.map((item) => [item.id, item.name])), [classes]);
+  const activeClassId = useMemo(
+    () => (classes.some((item) => item.id === classFilter) ? classFilter : (classes[0]?.id ?? null)),
+    [classes, classFilter],
+  );
 
   const visibleStudents = useMemo(() => {
+    if (activeClassId === null) return [];
     const needle = normalizeText(query);
     const filtered = students.filter((student) => {
-      if (classFilter !== null && student.classId !== classFilter) return false;
+      if (student.classId !== activeClassId) return false;
       if (!needle) return true;
       const haystack = normalizeText(
         `${student.firstName} ${student.lastName} ${student.lastName} ${student.firstName} ${studentRegistrationNumber(student)} ${student.id}`,
@@ -83,7 +88,7 @@ export function StudentCardsScreen() {
       return haystack.includes(needle);
     });
     return sortStudentsForCards(filtered, sortOrder);
-  }, [students, classFilter, query, sortOrder]);
+  }, [students, activeClassId, query, sortOrder]);
 
   const studentsToPrint = useMemo(() => {
     if (scopeMode === 'custom') {
@@ -93,7 +98,7 @@ export function StudentCardsScreen() {
     return visibleStudents;
   }, [scopeMode, students, selectedIds, visibleStudents, sortOrder]);
 
-  const selectedClassName = classFilter ? classNameById.get(classFilter) ?? '' : '';
+  const selectedClassName = activeClassId ? classNameById.get(activeClassId) ?? '' : '';
   const yearLabel = schoolYear.trim() || schoolYearForDate(today);
   const sheetCount = requiredA4Pages(studentsToPrint.length, density);
 
@@ -485,16 +490,11 @@ export function StudentCardsScreen() {
             </div>
 
             <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
-              <FilterChip
-                label={t('students.allClasses')}
-                active={classFilter === null}
-                onClick={() => setClassFilter(null)}
-              />
               {classes.map((schoolClass) => (
                 <FilterChip
                   key={schoolClass.id}
                   label={schoolClass.name}
-                  active={classFilter === schoolClass.id}
+                  active={activeClassId === schoolClass.id}
                   onClick={() => setClassFilter(schoolClass.id)}
                 />
               ))}

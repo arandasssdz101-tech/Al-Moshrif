@@ -36,7 +36,7 @@ export function StudentDetail({ student, classes, access, onBack, onEdit, onDele
   const [cardCode, setCardCode] = useState(student.cardCode ?? '');
   const canEdit = access.canEdit && canAccessClass(access, student.classId);
   const className = classes.find((item) => item.id === student.classId)?.name ?? t('students.unknownClass');
-  const fullName = `${student.firstName} ${student.lastName}`;
+  const fullName = `${student.lastName} ${student.firstName}`;
   const schoolYear = schoolYearForDate(todayIso());
   const formatDate = (iso: string | null) => (iso ? formatIsoDate(iso, i18n.language) : t('students.notSet'));
 

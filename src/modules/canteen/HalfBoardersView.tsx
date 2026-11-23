@@ -62,6 +62,7 @@ export function HalfBoardersView({ canEdit, students, classes, onReload }: HalfB
         (classFilter === null || s.classId === classFilter) &&
         (!noCardOnly || !(s.cardCode && s.cardCode.trim())) &&
         (needle === '' ||
+          normalizeText(`${s.lastName} ${s.firstName}`).includes(needle) ||
           normalizeText(`${s.firstName} ${s.lastName}`).includes(needle) ||
           Boolean(s.cardCode && normalizeText(s.cardCode).includes(needle))),
     );
@@ -192,27 +193,46 @@ export function HalfBoardersView({ canEdit, students, classes, onReload }: HalfB
           <ul className="flex flex-col gap-3">
             {visible.map((student) => {
               const hasCard = Boolean(student.cardCode?.trim());
+              const initials = `${student.lastName.charAt(0)}${student.firstName.charAt(0)}`.toUpperCase();
+              const className = classNameById.get(student.classId) ?? t('canteen.halfBoarders.unknownClass');
               return (
-                <li key={student.id} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
-                  <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary-50 text-sm font-bold text-secondary-700">
-                    {`${student.firstName.charAt(0)}${student.lastName.charAt(0)}`.toUpperCase()}
-                  </span>
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="truncate font-medium text-neutral-900">{student.firstName} {student.lastName}</span>
-                    <span className="truncate text-sm text-neutral-500">
-                      {classNameById.get(student.classId) ?? t('canteen.halfBoarders.unknownClass')}
-                      {student.dateOfBirth ? ` · ${formatDate(student.dateOfBirth, i18n.language)}` : ''}
+                <li
+                  key={student.id}
+                  className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary-50 text-sm font-bold text-secondary-700">
+                      {initials}
                     </span>
-                    <span className={`text-xs ${hasCard ? 'text-neutral-400' : 'font-medium text-warning-600'}`} dir={hasCard ? 'ltr' : undefined}>
-                      {hasCard ? student.cardCode : t('canteen.halfBoarders.noCard')}
-                    </span>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-base leading-snug text-neutral-900">
+                        <span className="break-words font-bold text-neutral-900">{student.lastName}</span>
+                        <span className="break-words font-medium text-neutral-700">{student.firstName}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs sm:text-sm text-neutral-500">
+                        <span className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-700">
+                          {className}
+                        </span>
+                        {student.dateOfBirth ? (
+                          <span className="tabular-nums text-neutral-500">
+                            {formatDate(student.dateOfBirth, i18n.language)}
+                          </span>
+                        ) : null}
+                        <span
+                          className={`text-xs ${hasCard ? 'font-mono text-neutral-500' : 'font-medium text-warning-600'}`}
+                          dir={hasCard ? 'ltr' : undefined}
+                        >
+                          {hasCard ? student.cardCode : t('canteen.halfBoarders.noCard')}
+                        </span>
+                      </div>
+                    </div>
                   </div>
                   {canEdit ? (
-                    <div className="flex shrink-0 gap-1">
+                    <div className="flex shrink-0 items-center justify-end gap-1.5 border-t border-neutral-100 pt-2.5 sm:border-t-0 sm:pt-0">
                       <Button
                         variant="ghost"
                         onClick={() => setEditTarget(student)}
-                        className="min-h-11 px-3 text-sm"
+                        className="min-h-10 px-3 text-sm"
                         icon={<Edit3 className="size-4" aria-hidden />}
                       >
                         {t('common.edit')}
@@ -220,7 +240,7 @@ export function HalfBoardersView({ canEdit, students, classes, onReload }: HalfB
                       <Button
                         variant="ghost"
                         onClick={() => setRemoveTarget(student)}
-                        className="min-h-11 px-3 text-sm text-danger-600"
+                        className="min-h-10 px-3 text-sm text-danger-600"
                         icon={<Trash2 className="size-4" aria-hidden />}
                       >
                         {t('canteen.halfBoarders.remove')}
@@ -266,7 +286,7 @@ export function HalfBoardersView({ canEdit, students, classes, onReload }: HalfB
 
       <Modal
         open={removeTarget !== null}
-        title={t('canteen.halfBoarders.removeTitle', { name: removeTarget ? `${removeTarget.firstName} ${removeTarget.lastName}` : '' })}
+        title={t('canteen.halfBoarders.removeTitle', { name: removeTarget ? `${removeTarget.lastName} ${removeTarget.firstName}` : '' })}
         description={t('canteen.halfBoarders.removeBody')}
         onClose={() => setRemoveTarget(null)}
       >
@@ -405,7 +425,7 @@ function AddHalfBoarderModal({
       {duplicateMatch ? (
         <div className="flex flex-col gap-4">
           <div className="rounded-xl bg-warning-50 p-4 text-sm text-warning-800">
-            {t('canteen.halfBoarders.duplicateFound', { name: `${duplicateMatch.firstName} ${duplicateMatch.lastName}` })}
+            {t('canteen.halfBoarders.duplicateFound', { name: `${duplicateMatch.lastName} ${duplicateMatch.firstName}` })}
           </div>
           <div className="flex flex-col gap-3 sm:flex-row-reverse">
             <Button fullWidth onClick={handleUpdateExisting} disabled={submitting}>
@@ -526,10 +546,10 @@ function EditHalfBoarderModal({
   };
 
   return (
-    <Modal open={open} title={t('canteen.halfBoarders.edit', { name: `${student.firstName} ${student.lastName}` })} onClose={onClose}>
+    <Modal open={open} title={t('canteen.halfBoarders.edit', { name: `${student.lastName} ${student.firstName}` })} onClose={onClose}>
       <form onSubmit={handleSave} className="flex flex-col gap-4">
         <div className="rounded-xl bg-neutral-50 p-3 text-sm text-neutral-600">
-          <p className="font-medium text-neutral-900">{student.firstName} {student.lastName}</p>
+          <p className="font-bold text-neutral-900">{student.lastName} <span className="font-medium text-neutral-700">{student.firstName}</span></p>
           {student.dateOfBirth ? <p className="text-neutral-500">{formatDate(student.dateOfBirth, 'en')}</p> : null}
         </div>
         <label className="flex flex-col gap-1">
@@ -779,7 +799,7 @@ function ImportHalfBoardersModal({
               <ul className="max-h-28 space-y-1 overflow-y-auto pt-1 text-xs text-warning-900">
                 {toExternalStudents.map((student) => (
                   <li key={student.id} className="flex items-center justify-between gap-2 rounded-md bg-white/80 px-2.5 py-1">
-                    <span className="truncate font-medium">{student.firstName} {student.lastName}</span>
+                    <span className="break-words font-semibold">{student.lastName} {student.firstName}</span>
                     <span className="shrink-0 text-neutral-500">
                       {classNameById.get(student.classId) ?? ''}
                     </span>
