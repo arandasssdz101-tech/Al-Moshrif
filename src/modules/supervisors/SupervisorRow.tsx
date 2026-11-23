@@ -1,4 +1,4 @@
-import { Check, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronRight, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import type { User, UserStatus } from '@/db/types';
@@ -9,6 +9,7 @@ interface SupervisorRowProps {
   busy: boolean;
   onOpen: (userId: string) => void;
   onSetStatus: (userId: string, status: UserStatus) => void;
+  onDelete: (supervisor: User) => void;
 }
 
 const STATUS_TONE: Record<UserStatus, string> = {
@@ -17,7 +18,14 @@ const STATUS_TONE: Record<UserStatus, string> = {
   rejected: 'bg-danger-50 text-danger-700',
 };
 
-export function SupervisorRow({ supervisor, assignedClassNames, busy, onOpen, onSetStatus }: SupervisorRowProps) {
+export function SupervisorRow({
+  supervisor,
+  assignedClassNames,
+  busy,
+  onOpen,
+  onSetStatus,
+  onDelete,
+}: SupervisorRowProps) {
   const { t } = useTranslation();
   const status = supervisor.status;
   const summary =
@@ -36,6 +44,9 @@ export function SupervisorRow({ supervisor, assignedClassNames, busy, onOpen, on
             {t(`supervisors.status.${status}`)}
           </span>
         </span>
+        <span dir="ltr" className="self-start truncate font-mono text-xs text-neutral-500">
+          @{supervisor.usernameKey}
+        </span>
         {summary ? <span className="text-sm text-neutral-500">{summary}</span> : null}
       </span>
       {status === 'approved' ? (
@@ -46,17 +57,29 @@ export function SupervisorRow({ supervisor, assignedClassNames, busy, onOpen, on
 
   return (
     <li className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200 animate-fade-in">
-      {status === 'approved' ? (
+      <div className="flex items-center gap-2">
+        {status === 'approved' ? (
+          <button
+            type="button"
+            onClick={() => onOpen(supervisor.id)}
+            className="flex min-h-12 min-w-0 flex-1 items-center gap-3 rounded-xl text-start transition hover:opacity-80"
+          >
+            {body}
+          </button>
+        ) : (
+          <div className="flex min-h-12 min-w-0 flex-1 items-center gap-3">{body}</div>
+        )}
         <button
           type="button"
-          onClick={() => onOpen(supervisor.id)}
-          className="flex min-h-12 w-full items-center gap-3 rounded-xl text-start transition hover:opacity-80"
+          disabled={busy}
+          onClick={() => onDelete(supervisor)}
+          aria-label={`${t('supervisors.removeSupervisor')}: ${supervisor.name}`}
+          title={t('supervisors.removeSupervisor')}
+          className="flex size-11 shrink-0 items-center justify-center rounded-xl text-danger-600 transition hover:bg-danger-50 focus:outline-none focus:ring-2 focus:ring-danger-500/30 disabled:opacity-50"
         >
-          {body}
+          <Trash2 className="size-5" aria-hidden />
         </button>
-      ) : (
-        <div className="flex min-h-12 items-center gap-3">{body}</div>
-      )}
+      </div>
 
       {status === 'pending' ? (
         <div className="grid grid-cols-2 gap-2">

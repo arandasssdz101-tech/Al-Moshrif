@@ -1,17 +1,23 @@
 import type { ReactNode } from 'react';
-import { ChevronRight, KeyRound, UserPlus } from 'lucide-react';
+import { ChevronRight, KeyRound, Upload, UserPlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppLogo } from '@/components/AppLogo';
 import { LanguageToggle } from '@/components/LanguageToggle';
+import { FormError } from '@/components/ui/StatusBlock';
+import { RestoreBackupModal } from './RestoreBackupModal';
+import { useAuthBackupRestore } from './useAuthBackupRestore';
 
 interface WelcomeScreenProps {
   onCreate: () => void;
   onJoin: () => void;
   onLogin: () => void;
+  onRestored: () => void;
 }
 
-export function WelcomeScreen({ onCreate, onJoin, onLogin }: WelcomeScreenProps) {
+export function WelcomeScreen({ onCreate, onJoin, onLogin, onRestored }: WelcomeScreenProps) {
   const { t } = useTranslation();
+  const backup = useAuthBackupRestore(onRestored);
+
   return (
     <div className="flex min-h-dvh flex-col bg-neutral-50">
       <header className="mx-auto flex w-full max-w-md justify-end px-6 pt-6">
@@ -41,6 +47,23 @@ export function WelcomeScreen({ onCreate, onJoin, onLogin }: WelcomeScreenProps)
             onClick={onJoin}
             tone="secondary"
           />
+          <label className="group flex min-h-20 w-full cursor-pointer items-center gap-4 rounded-2xl bg-white p-5 text-start shadow-sm ring-1 ring-neutral-200 transition duration-200 hover:-translate-y-0.5 hover:shadow-md focus-within:ring-2 focus-within:ring-primary-500 active:scale-[0.99]">
+            <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-700">
+              <Upload className="size-6" aria-hidden />
+            </span>
+            <span className="flex flex-1 flex-col gap-1">
+              <span className="text-lg font-bold text-neutral-900">{t('auth.backup.cardTitle')}</span>
+              <span className="text-sm text-neutral-600">{t('auth.backup.cardHint')}</span>
+            </span>
+            <ChevronRight className="size-5 shrink-0 text-neutral-400 transition group-hover:translate-x-0.5 rtl:-scale-x-100 rtl:group-hover:-translate-x-0.5" aria-hidden />
+            <input
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              onChange={backup.handleFileChange}
+            />
+          </label>
+          <FormError message={backup.error} />
         </div>
 
         <button
@@ -51,6 +74,15 @@ export function WelcomeScreen({ onCreate, onJoin, onLogin }: WelcomeScreenProps)
           {t('auth.loginLink')}
         </button>
       </main>
+
+      <RestoreBackupModal
+        open={backup.pendingRestore !== null}
+        summary={backup.summary}
+        willOverwrite={backup.willOverwrite}
+        restoring={backup.restoring}
+        onConfirm={backup.handleConfirmRestore}
+        onCancel={backup.cancelRestore}
+      />
     </div>
   );
 }

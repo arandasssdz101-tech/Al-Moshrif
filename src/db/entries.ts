@@ -198,11 +198,6 @@ export async function ensureGateAutoAbsencesStarted(
     return { started: false, createdCount: 0 };
   }
 
-  const trackingStart = institution.canteenTrackingStart ?? null;
-  if (trackingStart && date < trackingStart) {
-    return { started: false, createdCount: 0 };
-  }
-
   const closureId = closureIdFor(institutionId, date);
   const existingClosure = await db.entryClosures.get(closureId);
   if (existingClosure?.autoAbsencesSyncedAt) {
@@ -217,6 +212,9 @@ export async function ensureGateAutoAbsencesStarted(
     listStudentAbsencesForDate(institutionId, date),
   ]);
 
+  const day = weekdayOfDate(date);
+  const hasScheduledLessonsToday = slots.some((slot) => Number(slot.day) === day);
+
   const planned = planAutoAbsencesForStart({
     date,
     students,
@@ -225,6 +223,10 @@ export async function ensureGateAutoAbsencesStarted(
     existingAbsences,
     settings,
   });
+
+  if (planned.length === 0 && !hasScheduledLessonsToday) {
+    return { started: false, createdCount: 0 };
+  }
 
   const now = new Date().toISOString();
   let createdCount = 0;
@@ -366,9 +368,6 @@ export async function restoreStudentGateAbsencesAfterUndo(
   const holidaySet = new Set(institution.holidays.map((item) => item.date));
   if (!isSchoolDay(date, institution.workingDays, holidaySet)) return 0;
 
-  const trackingStart = institution.canteenTrackingStart ?? null;
-  if (trackingStart && date < trackingStart) return 0;
-
   const [student, entries, existingAbsences] = await Promise.all([
     db.students.get(studentId),
     listGateEntriesForDate(institutionId, date),
@@ -484,9 +483,9 @@ export async function previewCloseEntryDay(
   const cardAbsenceEnabled = isCardAbsenceEnabled(institution);
   const settings = getEntrySettings(institution);
   const trackingStart = institution.canteenTrackingStart ?? null;
-  const beforeTrackingStart = Boolean(trackingStart && date < trackingStart);
+  const beforeTrackingStart = false;
 
-  if (!cardAbsenceEnabled || beforeTrackingStart) {
+  if (!cardAbsenceEnabled) {
     return {
       date,
       cardAbsenceEnabled,
@@ -625,7 +624,9 @@ export async function closeEntryDay(
       closedAt: now,
       closedBy: actorId,
       createdAbsenceIds: [...prevIds, ...createdIds],
-      autoAbsencesSyncedAt: existingClosure?.autoAbsencesSyncedAt ?? now,
+      autoAbsencesSyncedAt: preview.cardAbsenceEnabled
+        ? (existingClosure?.autoAbsencesSyncedAt ?? now)
+        : (existingClosure?.autoAbsencesSyncedAt ?? null),
       updatedAt: now,
     };
     await db.entryClosures.put(closure);
@@ -736,8 +737,7 @@ export async function importGateEntries(
       }
 
       for (const [date, dateEntries] of acceptedByDate.entries()) {
-        const closure = await db.entryClosures.get(closureIdFor(institutionId, date));
-        if (!closure?.autoAbsencesSyncedAt) continue;
+        await ensureGateAutoAbsencesStarted(institutionId, actorId, date);
         for (const entry of dateEntries) {
           if (!entry.studentId) continue;
           const student = await db.students.get(entry.studentId);

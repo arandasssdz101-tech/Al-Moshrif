@@ -70,9 +70,11 @@ export interface AttendanceInput {
   totalsByStudent: ReadonlyMap<string, StudentAbsenceTotals>;
   lessonCountByClass: ReadonlyMap<string, number>;
   absentLastPeriodByStudent?: ReadonlySet<string>;
+  wholeDayAbsentByStudent?: ReadonlySet<string>;
 }
 
 function isStudentAbsent(input: AttendanceInput, student: AttendanceInput['students'][number]): boolean {
+  if (input.wholeDayAbsentByStudent?.has(student.id)) return true;
   return isCountedAbsent(
     input.rule,
     input.totalsByStudent.get(student.id),

@@ -1,7 +1,7 @@
 import type { BoardingStatus, SchoolClass, Student, StudentAbsence } from '@/db/types';
-import { isAbsentAllDay, isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
+import { isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
 import { shiftIsoDate } from '@/utils/dailyReportStats';
-import { classLessonsForDay, summarizeStudentAbsences, weekdayOfDate, type LessonSlot, type StudentAbsenceTotals } from '@/utils/absences';
+import { classLessonsForDay, weekdayOfDate, type ClassLesson, type LessonSlot, type StudentAbsenceTotals } from '@/utils/absences';
 
 const MAX_STREAK_LOOKBACK_DAYS = 366;
 
@@ -27,55 +27,117 @@ export interface DailyAbsenceInput {
   holidayDates: string[];
 }
 
+export interface StudentDayAbsenceIndexEntry {
+  periods: Set<number>;
+  justifiedPeriods: Set<number>;
+  hasGateAbsence: boolean;
+}
+
+export interface StudentDayEvaluation {
+  totals: StudentAbsenceTotals;
+  periods: number[];
+  wholeDay: boolean;
+  absentLastPeriod: boolean;
+  absentUntilEndOfDay: boolean;
+}
+
+export function indexActiveAbsencesForDate(
+  absences: Pick<StudentAbsence, 'studentId' | 'date' | 'period' | 'justified' | 'status' | 'source' | 'deletedAt'>[],
+  date: string,
+): Map<string, StudentDayAbsenceIndexEntry> {
+  const byStudent = new Map<string, StudentDayAbsenceIndexEntry>();
+  for (const record of absences) {
+    if (record.date !== date) continue;
+    if (record.deletedAt !== null && record.deletedAt !== undefined) continue;
+    if (record.status === 'late') continue;
+    const period = Number(record.period);
+    if (!Number.isFinite(period)) continue;
+
+    let entry = byStudent.get(record.studentId);
+    if (!entry) {
+      entry = {
+        periods: new Set<number>(),
+        justifiedPeriods: new Set<number>(),
+        hasGateAbsence: false,
+      };
+      byStudent.set(record.studentId, entry);
+    }
+    entry.periods.add(period);
+    if (record.justified) entry.justifiedPeriods.add(period);
+    if (record.source === 'gate') entry.hasGateAbsence = true;
+  }
+  return byStudent;
+}
+
+export function evaluateStudentDayAbsence(
+  entry: StudentDayAbsenceIndexEntry | undefined,
+  lessons: readonly ClassLesson[],
+): StudentDayEvaluation | null {
+  if (!entry || entry.periods.size === 0) return null;
+
+  const periods = [...entry.periods].sort((a, b) => a - b);
+  const justifiedHours = [...entry.periods].filter((period) => entry.justifiedPeriods.has(period)).length;
+  const hours = periods.length;
+  const totals: StudentAbsenceTotals = {
+    hours,
+    justifiedHours,
+    unjustifiedHours: hours - justifiedHours,
+  };
+
+  if (lessons.length > 0) {
+    const wholeDay = lessons.every((lesson) => entry.periods.has(lesson.period));
+    const lastPeriod = lessons[lessons.length - 1].period;
+    const absentLastPeriod = entry.periods.has(lastPeriod);
+    return {
+      totals,
+      periods,
+      wholeDay,
+      absentLastPeriod,
+      absentUntilEndOfDay: wholeDay || absentLastPeriod,
+    };
+  }
+
+  // Fallback when a class has no timetable entered for the weekday, yet Gate Entry closed the day with a gate absence
+  const wholeDay = entry.hasGateAbsence;
+  return {
+    totals,
+    periods,
+    wholeDay,
+    absentLastPeriod: false,
+    absentUntilEndOfDay: wholeDay,
+  };
+}
+
 export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[] {
   const classById = new Map(input.classes.map((item) => [item.id, item]));
   const holidays = new Set(input.holidayDates);
-  const totalsCache = new Map<string, Map<string, StudentAbsenceTotals>>();
-  const periodsCache = new Map<string, Map<string, Set<number>>>();
+  const indexCache = new Map<string, Map<string, StudentDayAbsenceIndexEntry>>();
+  const lessonsCache = new Map<string, ClassLesson[]>();
 
-  const totalsOn = (day: string) => {
-    let totals = totalsCache.get(day);
-    if (!totals) {
-      totals = summarizeStudentAbsences(input.absences, day);
-      totalsCache.set(day, totals);
+  const indexOn = (day: string) => {
+    let index = indexCache.get(day);
+    if (!index) {
+      index = indexActiveAbsencesForDate(input.absences, day);
+      indexCache.set(day, index);
     }
-    return totals;
+    return index;
   };
 
-  const periodsOn = (day: string) => {
-    let byStudent = periodsCache.get(day);
-    if (!byStudent) {
-      byStudent = new Map<string, Set<number>>();
-      for (const record of input.absences) {
-        if (record.date !== day) continue;
-        let set = byStudent.get(record.studentId);
-        if (!set) {
-          set = new Set<number>();
-          byStudent.set(record.studentId, set);
-        }
-        set.add(record.period);
-      }
-      periodsCache.set(day, byStudent);
+  const lessonsForClassWeekday = (classId: string, weekday: number) => {
+    const key = `${classId}|${weekday}`;
+    let lessons = lessonsCache.get(key);
+    if (!lessons) {
+      lessons = classLessonsForDay(input.slots, classId, weekday);
+      lessonsCache.set(key, lessons);
     }
-    return byStudent;
+    return lessons;
   };
 
-  const classDayInfo = (classId: string, day: string) => {
-    const lessons = classLessonsForDay(input.slots, classId, weekdayOfDate(day));
-    return {
-      count: lessons.length,
-      lastPeriod: lessons.length > 0 ? lessons[lessons.length - 1].period : null,
-    };
-  };
-
-  const wholeDayOn = (student: Student, day: string) =>
-    isAbsentAllDay(totalsOn(day).get(student.id), classDayInfo(student.classId, day).count);
-
-  const absentLastPeriodOn = (student: Student, day: string) => {
-    const { lastPeriod } = classDayInfo(student.classId, day);
-    if (lastPeriod === null) return false;
-    return periodsOn(day).get(student.id)?.has(lastPeriod) === true;
-  };
+  const evaluateOn = (student: Student, day: string) =>
+    evaluateStudentDayAbsence(
+      indexOn(day).get(student.id),
+      lessonsForClassWeekday(student.classId, weekdayOfDate(day)),
+    );
 
   const streakStartFor = (student: Student, date: string, wholeDayToday: boolean): string => {
     if (!wholeDayToday) return date;
@@ -83,9 +145,10 @@ export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[
     let cursor = shiftIsoDate(date, -1);
     for (let step = 0; step < MAX_STREAK_LOOKBACK_DAYS; step += 1) {
       if (isSchoolDay(cursor, input.workingDays, holidays)) {
-        if (wholeDayOn(student, cursor)) {
+        const evalCursor = evaluateOn(student, cursor);
+        if (evalCursor?.wholeDay) {
           start = cursor;
-        } else if (absentLastPeriodOn(student, cursor)) {
+        } else if (evalCursor?.absentLastPeriod) {
           start = cursor;
           break;
         } else {
@@ -99,22 +162,20 @@ export function studentDayAbsences(input: DailyAbsenceInput): StudentDayAbsence[
 
   const result: StudentDayAbsence[] = [];
   for (const student of input.students) {
+    if (student.deletedAt !== null && student.deletedAt !== undefined) continue;
     if (!isEnrolledOn(student, input.date)) continue;
-    const totals = totalsOn(input.date).get(student.id);
-    if (!totals || totals.hours === 0) continue;
-    const wholeDay = wholeDayOn(student, input.date);
-    const absentUntilEndOfDay = wholeDay || absentLastPeriodOn(student, input.date);
-    const periods = [...(periodsOn(input.date).get(student.id) ?? [])].sort((a, b) => a - b);
+    const evaluation = evaluateOn(student, input.date);
+    if (!evaluation) continue;
     result.push({
       studentId: student.id,
       name: `${student.firstName} ${student.lastName}`,
       className: classById.get(student.classId)?.name ?? '',
       boarding: student.boardingStatus,
-      hours: totals.hours,
-      wholeDay,
-      absentUntilEndOfDay,
-      since: absentUntilEndOfDay ? streakStartFor(student, input.date, wholeDay) : input.date,
-      periods,
+      hours: evaluation.totals.hours,
+      wholeDay: evaluation.wholeDay,
+      absentUntilEndOfDay: evaluation.absentUntilEndOfDay,
+      since: evaluation.absentUntilEndOfDay ? streakStartFor(student, input.date, evaluation.wholeDay) : input.date,
+      periods: evaluation.periods,
     });
   }
   return result.sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }) || a.name.localeCompare(b.name));

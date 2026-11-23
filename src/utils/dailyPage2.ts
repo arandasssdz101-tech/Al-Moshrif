@@ -1,6 +1,7 @@
 import type { AbsenceCountRule, CanteenEntry, SchoolClass, Student, StudentAbsence, SupervisorAbsenceRow, Teacher, TeacherAbsence, TeacherAbsenceReason, TimetableSlot, User } from '@/db/types';
 import { canteenReport, isEnrolledOn, teacherDayAbsences } from '@/utils/absenceReports';
-import { classLessonsForDay, summarizeStudentAbsences, weekdayOfDate } from '@/utils/absences';
+import { classLessonsForDay, weekdayOfDate, type StudentAbsenceTotals } from '@/utils/absences';
+import { evaluateStudentDayAbsence, indexActiveAbsencesForDate } from '@/utils/dailyPage1';
 import { levelAttendance, personCounts, studentSummary, type LevelAttendance, type PersonCounts, type StudentSummary } from '@/utils/dailyReportStats';
 import { normalizeText } from '@/utils/text';
 
@@ -118,7 +119,7 @@ function scannedCanteenRender(
 }
 
 export function computePage2(input: Page2Input): Page2Computed {
-  const totalsByStudent = summarizeStudentAbsences(input.studentAbsences, input.date);
+  const activeStudents = input.students.filter((student) => student.deletedAt === null || student.deletedAt === undefined);
   const weekday = weekdayOfDate(input.date);
   const lessonsByClass = new Map(
     input.classes.map((schoolClass) => [
@@ -129,28 +130,30 @@ export function computePage2(input: Page2Input): Page2Computed {
   const lessonCountByClass = new Map(
     Array.from(lessonsByClass.entries()).map(([classId, lessons]) => [classId, lessons.length]),
   );
-  const lastPeriodByClass = new Map(
-    Array.from(lessonsByClass.entries()).map(([classId, lessons]) => [
-      classId,
-      lessons.length > 0 ? lessons[lessons.length - 1].period : null,
-    ]),
-  );
+
+  const absenceIndex = indexActiveAbsencesForDate(input.studentAbsences, input.date);
+  const totalsByStudent = new Map<string, StudentAbsenceTotals>();
+  const wholeDayAbsentByStudent = new Set<string>();
   const absentLastPeriodByStudent = new Set<string>();
-  for (const record of input.studentAbsences) {
-    if (record.date !== input.date) continue;
-    const lastPeriod = lastPeriodByClass.get(record.classId);
-    if (lastPeriod !== null && lastPeriod !== undefined && record.period === lastPeriod) {
-      absentLastPeriodByStudent.add(record.studentId);
-    }
+
+  for (const student of activeStudents) {
+    const lessons = lessonsByClass.get(student.classId) ?? classLessonsForDay(input.slots, student.classId, weekday);
+    const evaluation = evaluateStudentDayAbsence(absenceIndex.get(student.id), lessons);
+    if (!evaluation) continue;
+    totalsByStudent.set(student.id, evaluation.totals);
+    if (evaluation.wholeDay) wholeDayAbsentByStudent.add(student.id);
+    if (evaluation.absentLastPeriod) absentLastPeriodByStudent.add(student.id);
   }
+
   const attendance = {
     classes: input.classes,
-    students: input.students,
+    students: activeStudents,
     date: input.date,
     rule: input.rule,
     totalsByStudent,
     lessonCountByClass,
     absentLastPeriodByStudent,
+    wholeDayAbsentByStudent,
   };
 
   const teacherById = new Map(input.teachers.map((teacher) => [teacher.id, teacher]));

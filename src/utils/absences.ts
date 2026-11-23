@@ -23,18 +23,39 @@ export interface ClassLesson {
 }
 
 export function classLessonsForDay(slots: LessonSlot[], classId: string, day: number): ClassLesson[] {
-  return slots
-    .filter((slot) => slot.classId === classId && slot.day === day)
-    .sort((a, b) => a.period - b.period)
-    .map((slot) => {
-      const lessons = slotLessons(slot);
-      const subjects = [...new Set(lessons.map((lesson) => lesson.subject))];
-      return {
-        period: slot.period,
-        subject: subjects.join(' / '),
-        teacherId: lessons.length === 1 ? lessons[0].teacherId : null,
-      };
-    });
+  const targetDay = Number(day);
+  const byPeriod = new Map<number, { subjects: string[]; teacherIds: Set<string>; hasNullTeacher: boolean }>();
+
+  for (const slot of slots) {
+    if (slot.classId !== classId || Number(slot.day) !== targetDay) continue;
+    const period = Number(slot.period);
+    if (!Number.isFinite(period)) continue;
+
+    let entry = byPeriod.get(period);
+    if (!entry) {
+      entry = { subjects: [], teacherIds: new Set<string>(), hasNullTeacher: false };
+      byPeriod.set(period, entry);
+    }
+
+    for (const lesson of slotLessons(slot)) {
+      if (lesson.subject && !entry.subjects.includes(lesson.subject)) {
+        entry.subjects.push(lesson.subject);
+      }
+      if (lesson.teacherId) {
+        entry.teacherIds.add(lesson.teacherId);
+      } else {
+        entry.hasNullTeacher = true;
+      }
+    }
+  }
+
+  return [...byPeriod.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([period, entry]) => ({
+      period,
+      subject: entry.subjects.join(' / '),
+      teacherId: !entry.hasNullTeacher && entry.teacherIds.size === 1 ? [...entry.teacherIds][0] : null,
+    }));
 }
 
 export function slotHasTeacher(slot: LessonSlot, teacherId: string): boolean {
@@ -42,11 +63,13 @@ export function slotHasTeacher(slot: LessonSlot, teacherId: string): boolean {
 }
 
 export function teacherLessonsForDay(slots: LessonSlot[], teacherId: string, day: number): TeacherAbsenceLesson[] {
+  const targetDay = Number(day);
   const byPeriod = new Map<number, TeacherAbsenceLesson>();
-  for (const slot of [...slots].sort((a, b) => a.period - b.period)) {
-    if (slot.day !== day || byPeriod.has(slot.period)) continue;
+  for (const slot of [...slots].sort((a, b) => Number(a.period) - Number(b.period))) {
+    const period = Number(slot.period);
+    if (Number(slot.day) !== targetDay || !Number.isFinite(period) || byPeriod.has(period)) continue;
     const lesson = slotLessons(slot).find((item) => item.teacherId === teacherId);
-    if (lesson) byPeriod.set(slot.period, { period: slot.period, classId: slot.classId, subject: lesson.subject });
+    if (lesson) byPeriod.set(period, { period, classId: slot.classId, subject: lesson.subject });
   }
   return [...byPeriod.values()];
 }

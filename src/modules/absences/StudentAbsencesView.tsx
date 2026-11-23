@@ -162,7 +162,13 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
   const students = data.students
     .filter((student) => student.classId === activeClassId)
     .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
-  const records = data.studentAbsences.filter((record) => record.classId === activeClassId && record.date === date);
+  const classStudentIds = new Set(students.map((student) => student.id));
+  const records = data.studentAbsences.filter(
+    (record) =>
+      record.date === date &&
+      record.status !== 'late' &&
+      (record.classId === activeClassId || classStudentIds.has(record.studentId)),
+  );
 
   return (
     <div className="flex flex-col gap-4">

@@ -32,6 +32,11 @@ export function AbsencesScreen() {
     { id: 'reports', label: t('absences.sections.reports') },
   ];
 
+  const handleSectionChange = (next: Section) => {
+    setSection(next);
+    workspace.reload();
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
@@ -39,7 +44,7 @@ export function AbsencesScreen() {
         <p className="text-base text-neutral-600">{t('absences.subtitle')}</p>
       </header>
 
-      <SegmentedControl<Section> options={options} value={activeSection} onChange={setSection} />
+      <SegmentedControl<Section> options={options} value={activeSection} onChange={handleSectionChange} />
 
       {activeSection === 'students' ? <StudentAbsencesView data={data} onSaved={workspace.reload} /> : null}
       {activeSection === 'teachers' ? <TeacherAbsencesView data={data} onChanged={workspace.reload} /> : null}

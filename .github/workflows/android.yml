@@ -63,6 +63,14 @@ jobs:
           echo "--- resources present ---"
           ls -R android/app/src/main/res | head -n 40
 
+      - name: Apply custom app launcher icons
+        run: |
+          if [ -d resources/android-icons ]; then
+            rm -f android/app/src/main/res/drawable-v24/ic_launcher_foreground.xml
+            cp -r resources/android-icons/. android/app/src/main/res/
+            echo "Applied custom launcher icons to android/app/src/main/res"
+          fi
+
       - name: Patch AndroidManifest (camera + barcode scanner)
         run: |
           python3 - <<'PY'

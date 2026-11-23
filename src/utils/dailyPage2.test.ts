@@ -129,6 +129,130 @@ describe('computePage2 student totals', () => {
     expect(reported.find((row) => row.studentId === 's3')?.wholeDay).toBe(false);
     expect(reported.find((row) => row.studentId === 's3')?.absentUntilEndOfDay).toBe(true);
   });
+
+  it('evaluates each student strictly against their own class timetable when classes end at different hours', () => {
+    const classA: SchoolClass = { ...base, id: 'c1', name: '1م1', level: 1 };
+    const classB: SchoolClass = { ...base, id: 'c2', name: '1م2', level: 1 };
+    const students = [
+      { ...student('a-last', 'male'), classId: 'c1' },
+      { ...student('b-mid', 'female'), classId: 'c2' },
+      { ...student('b-last', 'male'), classId: 'c2' },
+    ];
+    const weekday = weekdayOfDate(DATE);
+    // c1 finishes at period 4; c2 finishes at period 6
+    const slots: TimetableSlot[] = [
+      { ...slot(1), id: 'a1', classId: 'c1', day: weekday },
+      { ...slot(2), id: 'a2', classId: 'c1', day: weekday },
+      { ...slot(3), id: 'a3', classId: 'c1', day: weekday },
+      { ...slot(4), id: 'a4', classId: 'c1', day: weekday },
+      { ...slot(1), id: 'b1', classId: 'c2', day: weekday },
+      { ...slot(4), id: 'b4', classId: 'c2', day: weekday },
+      { ...slot(6), id: 'b6', classId: 'c2', day: weekday },
+    ];
+    const absences: StudentAbsence[] = [
+      { ...absence('a-last', 4), classId: 'c1' }, // last hour of c1 -> counted
+      { ...absence('b-mid', 4), classId: 'c2' }, // NOT last hour of c2 -> not counted
+      { ...absence('b-last', 6), classId: 'c2' }, // last hour of c2 -> counted
+    ];
+
+    const page1 = computePage2(input({ classes: [classA, classB], students, slots, studentAbsences: absences }));
+    const level1 = page1.levels.find((item) => item.level === 1);
+    expect(level1?.classes).toEqual([
+      { classId: 'c1', className: '1م1', enrolled: 1, absent: 1 },
+      { classId: 'c2', className: '1م2', enrolled: 2, absent: 1 },
+    ]);
+    expect(page1.summary.students.all).toEqual({ total: 3, absent: 2, present: 1 });
+
+    const page2 = studentDayAbsences({
+      date: DATE,
+      students,
+      classes: [classA, classB],
+      absences,
+      slots,
+      workingDays: [0, 1, 2, 3, 4],
+      holidayDates: [],
+    }).filter((row) => row.wholeDay || row.absentUntilEndOfDay);
+    expect(page2.map((row) => row.studentId)).toEqual(['a-last', 'b-last']);
+  });
+
+  it('handles duplicate timetable slots, moved students (stale record.classId), blank joinDate/leaveDate, and ignores late marks', () => {
+    const movedStudent: Student = {
+      ...student('s1', 'male'),
+      classId: 'c1',
+      joinDate: '' as unknown as null,
+      leaveDate: '' as unknown as null,
+    };
+    const lateStudent: Student = student('s2', 'female');
+    const duplicateSlots: TimetableSlot[] = [
+      slot(1),
+      { ...slot(1), id: 'slot1-dup', subject: 'Math TD' },
+      slot(2),
+      slot(4),
+    ];
+    const absences: StudentAbsence[] = [
+      // s1 moved from old-class -> record still has old-class, absent all 3 distinct periods (1, 2, 4)
+      { ...absence('s1', 1), classId: 'old-class' },
+      { ...absence('s1', 2), classId: 'old-class' },
+      { ...absence('s1', 4), classId: 'old-class' },
+      // s2 only marked late on the last period -> must NOT be counted as absent
+      { ...absence('s2', 4), status: 'late', justified: true },
+    ];
+
+    const page1 = computePage2(
+      input({
+        classes: [{ ...base, id: 'c1', name: '١م1', level: undefined }] as SchoolClass[],
+        students: [movedStudent, lateStudent],
+        slots: duplicateSlots,
+        studentAbsences: absences,
+      }),
+    );
+    expect(page1.levels.find((item) => item.level === 1)).toMatchObject({ enrolled: 2, absent: 1 });
+    expect(page1.summary.students.all).toEqual({ total: 2, absent: 1, present: 1 });
+
+    const page2 = studentDayAbsences({
+      date: DATE,
+      students: [movedStudent, lateStudent],
+      classes: [{ ...base, id: 'c1', name: '١م1', level: undefined }] as SchoolClass[],
+      absences,
+      slots: duplicateSlots,
+      workingDays: [0, 1, 2, 3, 4],
+      holidayDates: [],
+    }).filter((row) => row.wholeDay || row.absentUntilEndOfDay);
+    expect(page2.map((row) => row.studentId)).toEqual(['s1']);
+    expect(page2[0]?.wholeDay).toBe(true);
+  });
+
+  it('includes gate-entry absences in the daily report when a class has no timetable entered for that day', () => {
+    const s1 = student('s1', 'male');
+    const gateAbsence: StudentAbsence = {
+      ...absence('s1', 1),
+      subject: '—',
+      status: 'absent',
+      source: 'gate',
+    };
+
+    const page1 = computePage2(
+      input({
+        students: [s1],
+        slots: [],
+        studentAbsences: [gateAbsence],
+      }),
+    );
+    expect(page1.levels.find((item) => item.level === 1)).toMatchObject({ enrolled: 1, absent: 1 });
+    expect(page1.summary.students.all).toEqual({ total: 1, absent: 1, present: 0 });
+
+    const page2 = studentDayAbsences({
+      date: DATE,
+      students: [s1],
+      classes: [{ ...base, id: 'c1', name: '1م1', level: undefined }] as SchoolClass[],
+      absences: [gateAbsence],
+      slots: [],
+      workingDays: [0, 1, 2, 3, 4],
+      holidayDates: [],
+    }).filter((row) => row.wholeDay || row.absentUntilEndOfDay);
+    expect(page2.map((row) => row.studentId)).toEqual(['s1']);
+    expect(page2[0]?.wholeDay).toBe(true);
+  });
 });
 
 describe('computePage2 teachers, canteen and supervisors', () => {

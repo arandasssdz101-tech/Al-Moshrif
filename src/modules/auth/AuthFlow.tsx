@@ -8,7 +8,12 @@ type AuthScreen = 'welcome' | 'create' | 'join' | 'login';
 
 export function AuthFlow() {
   const [screen, setScreen] = useState<AuthScreen>('welcome');
-  const goWelcome = () => setScreen('welcome');
+  const [restoredNotice, setRestoredNotice] = useState(false);
+
+  const goWelcome = () => {
+    setRestoredNotice(false);
+    setScreen('welcome');
+  };
 
   switch (screen) {
     case 'create':
@@ -16,10 +21,21 @@ export function AuthFlow() {
     case 'join':
       return <JoinInstitutionScreen onBack={goWelcome} />;
     case 'login':
-      return <LoginScreen onBack={goWelcome} />;
+      return <LoginScreen onBack={goWelcome} restoredBanner={restoredNotice} />;
     default:
       return (
-        <WelcomeScreen onCreate={() => setScreen('create')} onJoin={() => setScreen('join')} onLogin={() => setScreen('login')} />
+        <WelcomeScreen
+          onCreate={() => setScreen('create')}
+          onJoin={() => setScreen('join')}
+          onLogin={() => {
+            setRestoredNotice(false);
+            setScreen('login');
+          }}
+          onRestored={() => {
+            setRestoredNotice(true);
+            setScreen('login');
+          }}
+        />
       );
   }
 }

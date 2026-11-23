@@ -35,6 +35,8 @@ export async function loadAbsenceWorkspace(institutionId: string, actorId: strin
   const visibleClassIds = new Set(
     classes.filter((schoolClass) => schoolClass.deletedAt === null && canAccessClass(access, schoolClass.id)).map((item) => item.id),
   );
+  const visibleStudents = students.filter((student) => student.deletedAt === null && visibleClassIds.has(student.classId));
+  const visibleStudentIds = new Set(visibleStudents.map((student) => student.id));
   return {
     access,
     workingDays: institution.workingDays,
@@ -42,9 +44,13 @@ export async function loadAbsenceWorkspace(institutionId: string, actorId: strin
     classes: classes
       .filter((schoolClass) => visibleClassIds.has(schoolClass.id))
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
-    students: students.filter((student) => student.deletedAt === null && visibleClassIds.has(student.classId)),
+    students: visibleStudents,
     slots: slots.filter((slot) => slot.deletedAt === null && visibleClassIds.has(slot.classId)),
-    studentAbsences: studentAbsences.filter((record) => record.deletedAt === null && visibleClassIds.has(record.classId)),
+    studentAbsences: studentAbsences.filter(
+      (record) =>
+        record.deletedAt === null &&
+        (visibleClassIds.has(record.classId) || visibleStudentIds.has(record.studentId)),
+    ),
     teachers: teachers.filter((teacher) => teacher.deletedAt === null).sort((a, b) => a.name.localeCompare(b.name)),
     teacherAbsences: teacherAbsences.filter((record) => record.deletedAt === null),
     supervisors: users
@@ -94,13 +100,20 @@ export async function saveClassDayAbsences(
 
   await db.transaction('rw', db.studentAbsences, async () => {
     const existing = await db.studentAbsences
-      .where('classId')
-      .equals(classId)
-      .filter((record) => record.deletedAt === null && record.date === date)
+      .where('institutionId')
+      .equals(institutionId)
+      .filter(
+        (record) =>
+          record.deletedAt === null &&
+          record.date === date &&
+          record.status !== 'late' &&
+          (record.classId === classId || studentIds.has(record.studentId)),
+      )
       .toArray();
     const existingByKey = new Map(existing.map((record) => [`${record.studentId}|${record.period}`, record]));
+    const now = new Date().toISOString();
     for (const record of existing) {
-      await db.studentAbsences.put({ ...record, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
+      await db.studentAbsences.put({ ...record, deletedAt: now, ...touchFields(actorId) });
     }
     for (const entry of unique.values()) {
       const lesson = lessonByPeriod.get(entry.period);

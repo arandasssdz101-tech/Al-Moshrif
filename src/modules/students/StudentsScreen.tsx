@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { FileSpreadsheet, GraduationCap, Plus, QrCode, Search, Users } from 'lucide-react';
+import { Download, FileSpreadsheet, GraduationCap, Plus, QrCode, Search, Users } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -10,6 +10,7 @@ import { isStudentActive } from '@/utils/statistics';
 import type { Student } from '@/db/types';
 import { useSession } from '@/modules/auth/AuthContext';
 import { ClassesScreen } from '@/modules/students/ClassesScreen';
+import { ExportStudentListsModal } from '@/modules/students/ExportStudentListsModal';
 import { StudentDetail } from '@/modules/students/StudentDetail';
 import { StudentForm } from '@/modules/students/StudentForm';
 import { StudentImportScreen } from '@/modules/students/import/StudentImportScreen';
@@ -43,6 +44,7 @@ export function StudentsScreen({ onOpenCards }: StudentsScreenProps = {}) {
   const [view, setView] = useState<View>({ kind: 'list' });
   const [query, setQuery] = useState('');
   const [classFilter, setClassFilter] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
   const [undo, setUndo] = useState<UndoState | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const dismissUndo = useCallback(() => setUndo(null), []);
@@ -115,6 +117,11 @@ export function StudentsScreen({ onOpenCards }: StudentsScreenProps = {}) {
           {canAdd ? (
             <Button variant="secondary" onClick={() => setView({ kind: 'import' })} icon={<FileSpreadsheet className="size-5" aria-hidden />}>
               {t('students.importExcel')}
+            </Button>
+          ) : null}
+          {students.length > 0 ? (
+            <Button variant="secondary" onClick={() => setExportOpen(true)} icon={<Download className="size-5" aria-hidden />}>
+              {t('students.exportLists.button')}
             </Button>
           ) : null}
           <Button variant="secondary" onClick={() => setView({ kind: 'classes' })} icon={<GraduationCap className="size-5" aria-hidden />}>
@@ -194,6 +201,16 @@ export function StudentsScreen({ onOpenCards }: StudentsScreenProps = {}) {
           )}
         </>
       )}
+
+      <ExportStudentListsModal
+        open={exportOpen}
+        classes={classes}
+        students={students}
+        initialClassId={classFilter}
+        institutionName={institution.name}
+        directorate={institution.directorate}
+        onClose={() => setExportOpen(false)}
+      />
 
       {undo ? <UndoToast key={undo.id} message={undo.message} onUndo={undo.onUndo} onExpire={dismissUndo} /> : null}
     </div>

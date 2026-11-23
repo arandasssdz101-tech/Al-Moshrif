@@ -1,3 +1,4 @@
+import { DomainError } from '@/utils/errors';
 import { db } from './database';
 import type {
   CanteenEntry,
@@ -237,8 +238,84 @@ export function parseBackup(text: string): BackupData | null {
   };
 }
 
+export interface BackupSummary {
+  institutionNames: string[];
+  activeUserCount: number;
+  studentCount: number;
+  hasLibrary: boolean;
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+export function isValidAuthBackup(data: BackupData): boolean {
+  const activeInstitutionIds = new Set(
+    data.institutions
+      .filter((inst) => inst.deletedAt == null && isNonEmptyString(inst.name))
+      .map((inst) => inst.id),
+  );
+  if (activeInstitutionIds.size === 0) return false;
+
+  return data.users.some(
+    (user) =>
+      user.deletedAt == null &&
+      user.status !== 'rejected' &&
+      activeInstitutionIds.has(user.institutionId) &&
+      (user.role === 'head' || user.role === 'supervisor') &&
+      isNonEmptyString(user.usernameKey) &&
+      isNonEmptyString(user.passwordHash),
+  );
+}
+
+export function summarizeBackup(data: BackupData): BackupSummary {
+  const activeInstitutions = data.institutions.filter(
+    (inst) => inst.deletedAt == null && isNonEmptyString(inst.name),
+  );
+  const activeInstitutionIds = new Set(activeInstitutions.map((inst) => inst.id));
+  const activeUserCount = data.users.filter(
+    (user) =>
+      user.deletedAt == null &&
+      user.status !== 'rejected' &&
+      activeInstitutionIds.has(user.institutionId),
+  ).length;
+  const studentCount = data.students.filter(
+    (student) => student.deletedAt == null && activeInstitutionIds.has(student.institutionId),
+  ).length;
+
+  return {
+    institutionNames: activeInstitutions.map((inst) => inst.name.trim()),
+    activeUserCount,
+    studentCount,
+    hasLibrary: Boolean(data.libraryFiles?.length || data.libraryMeta?.length),
+  };
+}
+
+export async function hasExistingLocalData(): Promise<boolean> {
+  const [institutionCount, userCount] = await Promise.all([
+    db.institutions.count(),
+    db.users.count(),
+  ]);
+  return institutionCount > 0 || userCount > 0;
+}
+
 export async function replaceAllData(data: BackupData): Promise<void> {
   const hasLibrary = data.libraryMeta !== undefined || data.libraryFiles !== undefined;
+  let restoredFiles: LibraryFile[] = [];
+  if (hasLibrary && data.libraryFiles?.length) {
+    try {
+      restoredFiles = data.libraryFiles.map((entry) => ({
+        id: entry.id,
+        mime: entry.mime,
+        size: entry.size,
+        hash: entry.hash,
+        blob: base64ToBlob(entry.dataBase64, entry.mime),
+      }));
+    } catch {
+      throw new DomainError('institution.restoreInvalid');
+    }
+  }
+
   const tables = [
     db.institutions,
     db.users,
@@ -279,14 +356,7 @@ export async function replaceAllData(data: BackupData): Promise<void> {
       if (data.libraryMeta?.length) {
         await db.libraryMeta.bulkPut(data.libraryMeta);
       }
-      if (data.libraryFiles?.length) {
-        const restoredFiles: LibraryFile[] = data.libraryFiles.map((entry) => ({
-          id: entry.id,
-          mime: entry.mime,
-          size: entry.size,
-          hash: entry.hash,
-          blob: base64ToBlob(entry.dataBase64, entry.mime),
-        }));
+      if (restoredFiles.length) {
         await db.libraryFiles.bulkPut(restoredFiles);
       }
     }

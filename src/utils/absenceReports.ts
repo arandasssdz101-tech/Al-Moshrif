@@ -24,7 +24,9 @@ export function schoolDaysInMonth(month: string, workingDays: number[], holidayD
 }
 
 export function isEnrolledOn(student: Pick<Student, 'joinDate' | 'leaveDate'>, date: string): boolean {
-  return (student.joinDate === null || student.joinDate <= date) && (student.leaveDate === null || student.leaveDate > date);
+  const joinDate = typeof student.joinDate === 'string' && student.joinDate.trim() !== '' ? student.joinDate.trim() : null;
+  const leaveDate = typeof student.leaveDate === 'string' && student.leaveDate.trim() !== '' ? student.leaveDate.trim() : null;
+  return (joinDate === null || joinDate <= date) && (leaveDate === null || leaveDate > date);
 }
 
 export function isAbsentAllDay(totals: StudentAbsenceTotals | undefined, lessonCount: number): boolean {
