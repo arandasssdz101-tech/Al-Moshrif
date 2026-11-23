@@ -24,6 +24,7 @@ import type { EntryDayClosure, GateEntry } from '@/db/types';
 import { useSession } from '@/modules/auth/AuthContext';
 import { isSchoolDay } from '@/utils/absenceReports';
 import { isIsoDate } from '@/utils/absences';
+import { subscribeAppDataChanged } from '@/utils/dataEvents';
 import { computeEntryStats } from '@/utils/entry';
 import { errorKey } from '@/utils/errors';
 import { groupResettableDayAbsences } from '@/utils/gateAbsenceSync';
@@ -75,20 +76,27 @@ export function GateSyncAndResetPanel({
   useEffect(() => {
     if (!validDate) return;
     let active = true;
-    Promise.all([
-      listGateEntriesForDate(institution.id, date),
-      getEntryDayClosure(institution.id, date),
-    ])
-      .then(([gateRows, dayClosure]) => {
-        if (!active) return;
-        setEntries(gateRows);
-        setClosure(dayClosure);
-      })
-      .catch(() => {
-        // Keep previous state on transient read error
-      });
+    const loadGateState = () => {
+      Promise.all([
+        listGateEntriesForDate(institution.id, date),
+        getEntryDayClosure(institution.id, date),
+      ])
+        .then(([gateRows, dayClosure]) => {
+          if (!active) return;
+          setEntries(gateRows);
+          setClosure(dayClosure);
+        })
+        .catch(() => {
+          // Keep previous state on transient read error
+        });
+    };
+    loadGateState();
+    const unsub = subscribeAppDataChanged(['entries', 'absences', 'sync'], () => {
+      loadGateState();
+    });
     return () => {
       active = false;
+      unsub();
     };
   }, [institution.id, date, validDate, data.studentAbsences.length]);
 

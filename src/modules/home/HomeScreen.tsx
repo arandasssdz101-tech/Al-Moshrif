@@ -119,7 +119,7 @@ export function HomeScreen({ onNavigate, hasCanteen }: HomeScreenProps) {
       </section>
 
       {overview.data ? (
-        <section className="grid grid-cols-2 gap-3">
+        <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard
             icon={<GraduationCap className="size-5" aria-hidden />}
             label={t('home.studentsCount')}
@@ -162,7 +162,7 @@ export function HomeScreen({ onNavigate, hasCanteen }: HomeScreenProps) {
 
       <section className="flex flex-col gap-3">
         <h2 className="text-sm font-semibold text-neutral-500">{t('home.quickActions')}</h2>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {quickLinks.map((item) => (
             <button
               key={item.id}
@@ -194,7 +194,7 @@ export function HomeScreen({ onNavigate, hasCanteen }: HomeScreenProps) {
         </section>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-3">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard icon={<DoorOpen className="size-5" aria-hidden />} label={t('home.rooms')} value={String(institution.rooms)} tone="primary" />
         <StatCard
           icon={<CalendarDays className="size-5" aria-hidden />}

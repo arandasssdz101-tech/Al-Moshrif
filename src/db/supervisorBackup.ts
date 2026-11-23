@@ -17,6 +17,7 @@ import {
   type RoomBookingConflict,
   type SupervisorBackupPackage,
 } from '@/utils/supervisorMerge';
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import { db } from './database';
 import { touchFields } from './records';
 import type { AppNotification, Room } from './types';
@@ -236,7 +237,10 @@ export async function commitSupervisorBatchMerge(
 
       return plan;
     },
-  );
+  ).then((plan) => {
+    emitAppDataChanged(['absences', 'entries', 'sync', 'timetable'], { reason: 'supervisor-batch-merge' });
+    return plan;
+  });
 }
 
 export type ConflictResolutionAction =
@@ -295,6 +299,7 @@ export async function resolveRoomBookingConflict(
       });
     }
   });
+  emitAppDataChanged(['timetable', 'sync'], { reason: 'room-conflict-resolved' });
 }
 
 export async function getAvailableRoomsForSlot(
@@ -506,7 +511,12 @@ export async function importConsolidatedInstitutionPackage(
         { added: 0, updated: 0, skipped: 0, conflicts: 0 },
       );
     },
-  );
+  ).then((counts) => {
+    emitAppDataChanged(['absences', 'entries', 'sync', 'students', 'timetable'], {
+      reason: 'consolidated-package-import',
+    });
+    return counts;
+  });
 }
 
 export async function listNotifications(institutionId: string): Promise<AppNotification[]> {

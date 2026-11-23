@@ -8,6 +8,7 @@ import { BatchMergeCenterScreen } from '@/modules/supervisors/BatchMergeCenterSc
 import { SupervisorBackupCard } from '@/modules/supervisors/SupervisorBackupCard';
 import { AccountSection } from './AccountSection';
 import { AppearanceSection } from './AppearanceSection';
+import { DesktopWebCard } from './DesktopWebCard';
 import { InstitutionSettingsScreen } from './InstitutionSettingsScreen';
 
 type SettingsView = 'main' | 'institution' | 'mergeCenter';
@@ -46,6 +47,8 @@ function SettingsMain({
         <h1 className="text-3xl text-neutral-900">{t('settings.title')}</h1>
         <p className="text-base text-neutral-600">{t('settings.subtitle')}</p>
       </header>
+
+      <DesktopWebCard />
 
       <SupervisorBackupCard />
 

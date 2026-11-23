@@ -522,8 +522,8 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
 
       <FormError message={saveError} />
 
-      {/* Floating summary bar above bottom navigation */}
-      <div className="bottom-above-tabs fixed inset-x-0 z-30 mx-auto max-w-3xl px-4">
+      {/* Floating summary bar above bottom navigation on mobile, cleanly docked on desktop */}
+      <div className="bottom-above-tabs fixed inset-x-0 z-30 mx-auto max-w-3xl px-4 lg:bottom-6 lg:max-w-4xl">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl bg-white/95 p-3 shadow-lg ring-1 ring-neutral-200 backdrop-blur">
           <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs sm:text-sm">
             <span className="font-semibold text-neutral-900">

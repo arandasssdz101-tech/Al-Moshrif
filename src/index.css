@@ -310,6 +310,7 @@ html.barcode-scanner-active .scanner-overlay {
 @media print {
   header,
   nav,
+  aside,
   .no-print {
     display: none !important;
   }

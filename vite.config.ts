@@ -5,9 +5,14 @@ import { fileURLToPath, URL } from 'node:url';
 
 import { env } from 'node:process';
 
+const rawWebBase = env.VITE_WEB_BASE?.trim();
+const normalizedWebBase = rawWebBase ? `${rawWebBase.replace(/\/+$/, '')}/` : '';
+const webBase = normalizedWebBase || './';
+const manifestScope = normalizedWebBase || '/';
+
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: './',
+  base: webBase,
   plugins: [
     react(),
     VitePWA({
@@ -22,30 +27,34 @@ export default defineConfig({
         'library/law-08-04.pdf',
       ],
       manifest: {
-        id: '/',
+        id: manifestScope,
         name: 'الإشراف التربوي',
         short_name: 'الإشراف',
         description: 'برنامج الإشراف التربوي لإدارة المؤسسة المدرسية والعمل دون إنترنت.',
+        lang: 'ar',
+        dir: 'rtl',
+        categories: ['education', 'productivity'],
         theme_color: '#1e6fd9',
         background_color: '#ffffff',
         display: 'standalone',
-        start_url: '/',
-        scope: '/',
+        display_override: ['standalone'],
+        start_url: manifestScope,
+        scope: manifestScope,
         icons: [
           {
-            src: '/pwa-192x192.png',
+            src: `${manifestScope}pwa-192x192.png`,
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-512x512.png',
+            src: `${manifestScope}pwa-512x512.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/pwa-maskable-512x512.png',
+            src: `${manifestScope}pwa-maskable-512x512.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',

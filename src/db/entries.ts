@@ -1,6 +1,7 @@
 import { DomainError } from '@/utils/errors';
 import { isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
-import { classLessonsForDay, weekdayOfDate } from '@/utils/absences';
+import { classLessonsForDay, isIsoDate, weekdayOfDate } from '@/utils/absences';
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import {
   acceptedEntryByStudent,
   computeLateMissedPeriods,
@@ -10,6 +11,12 @@ import {
   planStudentGateAbsenceSync,
 } from '@/utils/entry';
 import { planEntryMerge, type EntryMergePlan } from '@/utils/entryMerge';
+import {
+  planGateDateReset,
+  summarizeGateDateForReset,
+  type GateDateResetOptions,
+  type GateDateResetSummary,
+} from '@/utils/entryReset';
 import { canAccessClass, getModuleAccess, type StudentAccess } from './access';
 import { db } from './database';
 import { getInstitution, isCardAbsenceEnabled } from './institutions';
@@ -138,6 +145,7 @@ export async function recordGateEntry(
   };
 
   await db.entries.add(entry);
+  emitAppDataChanged(['entries'], { date: input.date, reason: 'record-entry' });
   return entry;
 }
 
@@ -151,6 +159,7 @@ export async function softDeleteGateEntry(entryId: string, actorId: string): Pro
     deletedAt: new Date().toISOString(),
     ...touchFields(actorId),
   });
+  emitAppDataChanged(['entries'], { date: existing.date, reason: 'delete-entry' });
 }
 
 export async function removeStudentDayAbsences(
@@ -179,6 +188,7 @@ export async function removeStudentDayAbsences(
       });
     }
   });
+  emitAppDataChanged(['absences'], { date, reason: 'remove-student-day-absences' });
   return records.length;
 }
 
@@ -267,6 +277,7 @@ export async function ensureGateAutoAbsencesStarted(
     await db.entryClosures.put(nextClosure);
   });
 
+  emitAppDataChanged(['absences', 'sync'], { date, reason: 'auto-absences-started' });
   return { started: true, createdCount };
 }
 
@@ -341,6 +352,7 @@ export async function syncStudentGateAbsenceOnAcceptedScan(
         });
       }
     });
+    emitAppDataChanged(['absences', 'sync'], { date, reason: 'scan-sync-absence' });
   }
 
   return {
@@ -410,6 +422,7 @@ export async function restoreStudentGateAbsencesAfterUndo(
   await db.transaction('rw', db.studentAbsences, async () => {
     await db.studentAbsences.bulkAdd(toInsert);
   });
+  emitAppDataChanged(['absences', 'sync'], { date, reason: 'undo-restore-absence' });
   return toInsert.length;
 }
 
@@ -452,6 +465,7 @@ export async function clearGateAutoAbsencesForDay(
     }
   });
 
+  emitAppDataChanged(['absences', 'sync'], { date, reason: 'clear-gate-absences' });
   return removed;
 }
 
@@ -633,6 +647,7 @@ export async function closeEntryDay(
   });
 
   const savedClosure = (await db.entryClosures.get(closureIdFor(institutionId, date)))!;
+  emitAppDataChanged(['entries', 'absences', 'sync'], { date, reason: 'close-entry-day' });
   return { closure: savedClosure, createdAbsencesCount: createdIds.length };
 }
 
@@ -688,6 +703,7 @@ export async function undoCloseEntryDay(
     });
   });
 
+  emitAppDataChanged(['entries', 'absences', 'sync'], { date, reason: 'undo-close-entry-day' });
   return removed;
 }
 
@@ -708,6 +724,7 @@ export async function reopenEntryDay(
     closed: false,
     updatedAt: new Date().toISOString(),
   });
+  emitAppDataChanged(['entries', 'sync'], { date, reason: 'reopen-entry-day' });
 }
 
 export async function importGateEntries(
@@ -753,7 +770,106 @@ export async function importGateEntries(
         }
       }
     }
+    emitAppDataChanged(['entries', 'absences', 'sync'], { reason: 'import-gate-entries' });
   }
 
   return plan;
+}
+
+export interface ResetGateEntriesForDateResult {
+  date: string;
+  removedEntriesCount: number;
+  removedGateAbsencesCount: number;
+  closureReset: boolean;
+}
+
+export async function getGateDateResetPreview(
+  institutionId: string,
+  date: string,
+): Promise<GateDateResetSummary> {
+  if (!isIsoDate(date)) throw new DomainError('validation.invalidDate');
+  const [entries, absences, closure] = await Promise.all([
+    listGateEntriesForDate(institutionId, date),
+    listStudentAbsencesForDate(institutionId, date),
+    getEntryDayClosure(institutionId, date),
+  ]);
+  return summarizeGateDateForReset(date, entries, absences, closure);
+}
+
+export async function resetGateEntriesForDate(
+  institutionId: string,
+  actorId: string,
+  date: string,
+  options?: GateDateResetOptions,
+): Promise<ResetGateEntriesForDateResult> {
+  const access = await getModuleAccess(actorId, 'entry');
+  if (!access.canEdit) throw new DomainError('errors.notAuthorized');
+  if (!isIsoDate(date)) throw new DomainError('validation.invalidDate');
+
+  const now = new Date().toISOString();
+  let removedEntriesCount = 0;
+  let removedGateAbsencesCount = 0;
+  let closureReset = false;
+
+  await db.transaction('rw', [db.entries, db.studentAbsences, db.entryClosures], async () => {
+    const [entries, absences, closure] = await Promise.all([
+      db.entries
+        .where('date')
+        .equals(date)
+        .filter((entry) => entry.institutionId === institutionId && entry.deletedAt === null)
+        .toArray(),
+      db.studentAbsences
+        .where('institutionId')
+        .equals(institutionId)
+        .filter((record) => record.deletedAt === null && record.date === date)
+        .toArray(),
+      db.entryClosures.get(closureIdFor(institutionId, date)),
+    ]);
+
+    const plan = planGateDateReset(date, entries, absences, closure ?? null, options);
+    const entryDeleteIds = new Set(plan.entryIdsToDelete);
+    const absenceDeleteIds = new Set(plan.gateAbsenceIdsToDelete);
+
+    for (const entry of entries) {
+      if (!entryDeleteIds.has(entry.id)) continue;
+      await db.entries.put({
+        ...entry,
+        deletedAt: now,
+        ...touchFields(actorId),
+      });
+      removedEntriesCount += 1;
+    }
+
+    for (const absence of absences) {
+      if (!absenceDeleteIds.has(absence.id)) continue;
+      await db.studentAbsences.put({
+        ...absence,
+        deletedAt: now,
+        ...touchFields(actorId),
+      });
+      removedGateAbsencesCount += 1;
+    }
+
+    if (plan.shouldResetClosure && closure) {
+      await db.entryClosures.put({
+        ...closure,
+        closed: false,
+        closedAt: null,
+        closedBy: null,
+        autoAbsencesSyncedAt: null,
+        createdAbsenceIds: [],
+        updatedAt: now,
+      });
+      closureReset = true;
+    }
+  });
+
+  emitAppDataChanged(['entries', 'absences', 'sync'], { date, reason: 'reset-entry-date' });
+
+  return {
+    date,
+    removedEntriesCount,
+    removedGateAbsencesCount,
+    closureReset,
+  };
 }

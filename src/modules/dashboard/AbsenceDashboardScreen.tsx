@@ -1,19 +1,25 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
+  CheckCircle2,
   Clock,
+  DoorOpen,
   LayoutDashboard,
   Minus,
+  RefreshCw,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { FilterChip } from '@/components/ui/FilterChip';
+import { Modal } from '@/components/ui/Modal';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/StatusBlock';
-import { loadAbsenceWorkspace } from '@/db/absences';
+import { EmptyState, ErrorState, FormError, LoadingState } from '@/components/ui/StatusBlock';
+import { loadAbsenceWorkspace, syncAbsencesWithGateEntries } from '@/db/absences';
+import { getEntryDayClosure, listGateEntriesForDate } from '@/db/entries';
+import type { EntryDayClosure, GateEntry } from '@/db/types';
 import { useSession } from '@/modules/auth/AuthContext';
 import {
   ClassAbsenceComparisonChart,
@@ -23,8 +29,12 @@ import {
 } from '@/modules/dashboard/AbsenceDashboardCharts';
 import type { TabId } from '@/modules/shell/AppShell';
 import { buildAbsenceDashboard } from '@/utils/absenceDashboard';
+import { isSchoolDay } from '@/utils/absenceReports';
+import { isIsoDate } from '@/utils/absences';
 import { CLASS_LEVELS, classLevelOf } from '@/utils/classLevel';
+import { subscribeAppDataChanged } from '@/utils/dataEvents';
 import { todayIso } from '@/utils/dates';
+import { computeEntryStats } from '@/utils/entry';
 import { errorKey } from '@/utils/errors';
 import { useAsyncData } from '@/utils/useAsyncData';
 
@@ -57,6 +67,16 @@ function formatMonthLabel(month: string, locale: string): string {
   }).format(new Date(Date.UTC(y, m - 1, 1)));
 }
 
+function formatTimeHm(iso: string | null | undefined, locale: string): string | null {
+  if (!iso) return null;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat(locale, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(parsed);
+}
+
 export function AbsenceDashboardScreen({ onNavigate }: AbsenceDashboardScreenProps) {
   const { t, i18n } = useTranslation();
   const { user, institution } = useSession();
@@ -72,6 +92,84 @@ export function AbsenceDashboardScreen({ onNavigate }: AbsenceDashboardScreenPro
   const [weeksCount, setWeeksCount] = useState<8 | 12>(8);
   const [monthsCount, setMonthsCount] = useState<6 | 12>(6);
   const [tableTab, setTableTab] = useState<TableTab>('weekly');
+
+  // Live link with Gate Entries & Absence Sync
+  const [syncDate, setSyncDate] = useState(today);
+  const [gateEntries, setGateEntries] = useState<GateEntry[]>([]);
+  const [dayClosure, setDayClosure] = useState<EntryDayClosure | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [zeroEntriesConfirmOpen, setZeroEntriesConfirmOpen] = useState(false);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string>(() => new Date().toISOString());
+
+  const loadSyncSnapshot = useCallback(async () => {
+    if (!isIsoDate(syncDate)) return;
+    try {
+      const [entries, closure] = await Promise.all([
+        listGateEntriesForDate(institution.id, syncDate),
+        getEntryDayClosure(institution.id, syncDate),
+      ]);
+      setGateEntries(entries);
+      setDayClosure(closure);
+      setLastRefreshedAt(new Date().toISOString());
+    } catch {
+      // Preserve last loaded snapshot on transient read failure
+    }
+  }, [institution.id, syncDate]);
+
+  useEffect(() => {
+    loadSyncSnapshot();
+  }, [loadSyncSnapshot]);
+
+  const reloadWorkspace = workspace.reload;
+
+  const reloadDashboardAndSync = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      reloadWorkspace();
+      await loadSyncSnapshot();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [reloadWorkspace, loadSyncSnapshot]);
+
+  // Auto-refresh whenever absences, gate entries, syncs, merges, or resets happen anywhere in the app
+  useEffect(() => {
+    const unsub = subscribeAppDataChanged(
+      ['absences', 'entries', 'sync', 'students', 'timetable'],
+      () => {
+        reloadWorkspace();
+        loadSyncSnapshot();
+      },
+    );
+    const onFocus = () => {
+      reloadWorkspace();
+      loadSyncSnapshot();
+    };
+    const onVisibility = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        reloadWorkspace();
+        loadSyncSnapshot();
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', onFocus);
+    }
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', onVisibility);
+    }
+    return () => {
+      unsub();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onFocus);
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', onVisibility);
+      }
+    };
+  }, [reloadWorkspace, loadSyncSnapshot]);
 
   const data = workspace.data;
 
@@ -111,6 +209,57 @@ export function AbsenceDashboardScreen({ onNavigate }: AbsenceDashboardScreenPro
     });
   }, [data, today, weeksCount, monthsCount, levelFilter, activeClassId]);
 
+  const validSyncDate = isIsoDate(syncDate);
+  const syncDateIsSchoolDay = Boolean(
+    data && validSyncDate && isSchoolDay(syncDate, data.workingDays, new Set(data.holidayDates)),
+  );
+
+  const syncDayStats = useMemo(() => {
+    if (!data || !validSyncDate) return null;
+    const entryStats = computeEntryStats(data.students, gateEntries, syncDate);
+    const dayAbsences = data.studentAbsences.filter(
+      (record) => record.deletedAt === null && record.date === syncDate && record.status !== 'late',
+    );
+    const absentStudentsCount = new Set(dayAbsences.map((item) => item.studentId)).size;
+    return {
+      ...entryStats,
+      absentStudentsCount,
+      absentHoursCount: dayAbsences.length,
+    };
+  }, [data, gateEntries, syncDate, validSyncDate]);
+
+  const executeSync = async () => {
+    if (!validSyncDate) return;
+    setSyncing(true);
+    setSyncError(null);
+    setSyncNotice(null);
+    try {
+      const result = await syncAbsencesWithGateEntries(institution.id, user.id, syncDate);
+      workspace.reload();
+      await loadSyncSnapshot();
+      setSyncNotice(
+        t('dashboard.sync.syncedNotice', {
+          added: result.addedCount,
+          removed: result.removedCount,
+          absent: result.absentStudentsAfterSync,
+        }),
+      );
+    } catch (cause) {
+      setSyncError(t(errorKey(cause)));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncClick = () => {
+    if (!syncDateIsSchoolDay || syncing) return;
+    if (syncDayStats && syncDayStats.entered === 0 && syncDayStats.enrolled > 0) {
+      setZeroEntriesConfirmOpen(true);
+      return;
+    }
+    executeSync();
+  };
+
   if (workspace.loading && !data) return <LoadingState />;
   if (workspace.error || !data || !summary) {
     return <ErrorState message={t(errorKey(workspace.error))} onRetry={workspace.reload} />;
@@ -118,6 +267,8 @@ export function AbsenceDashboardScreen({ onNavigate }: AbsenceDashboardScreenPro
 
   const isHead = data.access.isHead;
   const useHoursFallback = !summary.hasTimetable;
+  const lastSyncTimeLabel = formatTimeHm(dayClosure?.autoAbsencesSyncedAt, i18n.language);
+  const lastUpdatedLabel = formatTimeHm(lastRefreshedAt, i18n.language);
 
   if (data.classes.length === 0) {
     return (
@@ -153,16 +304,202 @@ export function AbsenceDashboardScreen({ onNavigate }: AbsenceDashboardScreenPro
             {isHead ? t('dashboard.subtitleHead') : t('dashboard.subtitleSupervisor')}
           </p>
         </div>
-        {onNavigate ? (
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="secondary"
-            onClick={() => onNavigate('absences')}
+            type="button"
+            onClick={reloadDashboardAndSync}
+            disabled={refreshing}
             className="whitespace-nowrap shrink-0"
           >
-            {t('dashboard.recordAbsencesAction')}
+            <RefreshCw className={`size-4 ${refreshing ? 'animate-spin' : ''}`} aria-hidden />
+            {t('dashboard.sync.refreshButton')}
           </Button>
-        ) : null}
+          {onNavigate ? (
+            <>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => onNavigate('entry')}
+                className="whitespace-nowrap shrink-0"
+              >
+                <DoorOpen className="size-4" aria-hidden />
+                {t('dashboard.openEntryAction')}
+              </Button>
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => onNavigate('absences')}
+                className="whitespace-nowrap shrink-0"
+              >
+                {t('dashboard.recordAbsencesAction')}
+              </Button>
+            </>
+          ) : null}
+        </div>
       </header>
+
+      {/* Live Absence & Gate Sync Bar */}
+      <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-bold text-neutral-900">{t('dashboard.sync.title')}</h2>
+              {lastUpdatedLabel ? (
+                <span className="text-xs text-neutral-500">
+                  · {t('dashboard.sync.lastUpdated', { time: lastUpdatedLabel })}
+                </span>
+              ) : null}
+            </div>
+            <p className="text-xs text-neutral-500">{t('dashboard.sync.subtitle')}</p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="sr-only" htmlFor="dashboard-sync-date">
+              {t('dashboard.sync.dateLabel')}
+            </label>
+            <input
+              id="dashboard-sync-date"
+              type="date"
+              value={syncDate}
+              max={today}
+              onChange={(e) => {
+                setSyncDate(e.target.value);
+                setSyncNotice(null);
+                setSyncError(null);
+              }}
+              className="min-h-10 rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-xs font-semibold text-neutral-900 focus:border-primary-500 focus:bg-white"
+            />
+            {syncDate !== today ? (
+              <Button
+                variant="secondary"
+                type="button"
+                onClick={() => {
+                  setSyncDate(today);
+                  setSyncNotice(null);
+                  setSyncError(null);
+                }}
+              >
+                {t('entry.today.backToToday')}
+              </Button>
+            ) : null}
+            {data.access.canEdit ? (
+              <Button
+                type="button"
+                onClick={handleSyncClick}
+                disabled={syncing || !syncDateIsSchoolDay}
+                className="whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className={`size-4 ${syncing ? 'animate-spin' : ''}`} aria-hidden />
+                {syncing ? t('dashboard.sync.syncing') : t('dashboard.sync.syncButton')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {syncDayStats ? (
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+            <div className="flex flex-col rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2">
+              <span className="text-[11px] font-medium text-neutral-500">
+                {t('dashboard.sync.statEntered')}
+              </span>
+              <span className="mt-0.5 text-base font-bold tabular-nums text-success-700">
+                {syncDayStats.entered}{' '}
+                <span className="text-xs font-medium text-neutral-500">
+                  / {syncDayStats.enrolled}
+                </span>
+              </span>
+            </div>
+
+            <div className="flex flex-col rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2">
+              <span className="text-[11px] font-medium text-neutral-500">
+                {t('dashboard.sync.statNotEntered')}
+              </span>
+              <span className="mt-0.5 text-base font-bold tabular-nums text-warning-700">
+                {syncDayStats.notEntered}
+              </span>
+            </div>
+
+            <div className="flex flex-col rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2">
+              <span className="text-[11px] font-medium text-neutral-500">
+                {t('dashboard.sync.statRecordedAbsences')}
+              </span>
+              <span className="mt-0.5 text-base font-bold tabular-nums text-danger-700">
+                {syncDayStats.absentStudentsCount}{' '}
+                <span className="text-xs font-medium text-neutral-500">
+                  ({syncDayStats.absentHoursCount} {t('dashboard.hoursAbbr')})
+                </span>
+              </span>
+            </div>
+
+            <div className="flex flex-col rounded-xl border border-neutral-100 bg-neutral-50 px-3 py-2">
+              <span className="text-[11px] font-medium text-neutral-500">
+                {t('dashboard.sync.statStatus')}
+              </span>
+              <span className="mt-0.5 flex items-center gap-1 text-xs font-bold text-neutral-800">
+                {!syncDateIsSchoolDay ? (
+                  <span className="text-neutral-500">{t('dashboard.sync.statusNonSchoolDay')}</span>
+                ) : lastSyncTimeLabel ? (
+                  <>
+                    <CheckCircle2 className="size-3.5 shrink-0 text-success-600" aria-hidden />
+                    <span className="text-success-700">
+                      {t('dashboard.sync.statusSyncedAt', { time: lastSyncTimeLabel })}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-warning-700">{t('dashboard.sync.statusNotSynced')}</span>
+                )}
+              </span>
+            </div>
+          </div>
+        ) : null}
+
+        {syncNotice ? (
+          <div className="flex items-center gap-2 rounded-xl border border-success-200 bg-success-50 px-3 py-2 text-xs font-medium text-success-900">
+            <CheckCircle2 className="size-4 shrink-0 text-success-700" aria-hidden />
+            <span>{syncNotice}</span>
+          </div>
+        ) : null}
+
+        <FormError message={syncError} />
+      </section>
+
+      <Modal
+        open={zeroEntriesConfirmOpen}
+        onClose={() => setZeroEntriesConfirmOpen(false)}
+        title={t('dashboard.sync.zeroEntriesTitle')}
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-2.5 rounded-xl border border-warning-200 bg-warning-50 p-3 text-sm text-warning-900">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning-700" aria-hidden />
+            <span>
+              {t('dashboard.sync.zeroEntriesBody', {
+                date: syncDate,
+                count: syncDayStats?.enrolled ?? 0,
+              })}
+            </span>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => setZeroEntriesConfirmOpen(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="danger"
+              type="button"
+              onClick={() => {
+                setZeroEntriesConfirmOpen(false);
+                executeSync();
+              }}
+            >
+              {t('dashboard.sync.zeroEntriesConfirm')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Filters & Metric Mode */}
       <section className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4">

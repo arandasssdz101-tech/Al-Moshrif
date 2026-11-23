@@ -2,6 +2,7 @@ import { DomainError } from '@/utils/errors';
 import { isSchoolDay } from '@/utils/absenceReports';
 import { classLessonsForDay, isIsoDate, slotHasTeacher, teacherLessonsForDay, weekdayOfDate } from '@/utils/absences';
 import { todayIso } from '@/utils/dates';
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import { getEntrySettings } from '@/utils/entry';
 import { planGateEntryAbsenceSync } from '@/utils/gateAbsenceSync';
 import { assertCanEditClassIn, canAccessClass, getModuleAccess, type StudentAccess } from './access';
@@ -169,6 +170,7 @@ export async function saveClassDayAbsences(
       });
     }
   });
+  emitAppDataChanged(['absences'], { date, reason: 'save-class-absences' });
 }
 
 export async function recordQuickStudentAttendance(
@@ -214,6 +216,7 @@ export async function recordQuickStudentAttendance(
       ...touchFields(actorId),
     };
     await db.studentAbsences.put(updated);
+    emitAppDataChanged(['absences'], { date: input.date, reason: 'quick-attendance' });
     return updated;
   }
 
@@ -228,6 +231,7 @@ export async function recordQuickStudentAttendance(
     status: input.status,
   };
   await db.studentAbsences.add(created);
+  emitAppDataChanged(['absences'], { date: input.date, reason: 'quick-attendance' });
   return created;
 }
 
@@ -327,6 +331,8 @@ export async function syncAbsencesWithGateEntries(
     };
     await db.entryClosures.put(nextClosure);
   });
+
+  emitAppDataChanged(['absences', 'sync'], { date, reason: 'gate-sync' });
 
   return {
     enrolledCount: plan.enrolledCount,
@@ -429,6 +435,8 @@ export async function resetDayAbsences(
     }
   });
 
+  emitAppDataChanged(['absences', 'sync'], { date, reason: 'reset-absences' });
+
   return {
     removedCount,
     affectedStudentsCount: affectedStudents.size,
@@ -487,6 +495,7 @@ export async function saveTeacherAbsence(
       });
     }
   });
+  emitAppDataChanged(['absences'], { date, reason: 'teacher-absence' });
 }
 
 export async function deleteTeacherAbsence(absenceId: string, actorId: string): Promise<void> {
@@ -494,6 +503,7 @@ export async function deleteTeacherAbsence(absenceId: string, actorId: string): 
   const record = await db.teacherAbsences.get(absenceId);
   if (!record || record.deletedAt !== null) throw new DomainError('errors.notFound');
   await db.teacherAbsences.put({ ...record, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
+  emitAppDataChanged(['absences'], { date: record.date, reason: 'teacher-absence' });
 }
 
 export async function restoreTeacherAbsence(absenceId: string, actorId: string): Promise<void> {
@@ -507,4 +517,5 @@ export async function restoreTeacherAbsence(absenceId: string, actorId: string):
     .count();
   if (clash > 0) throw new DomainError('absences.errors.alreadyRecorded');
   await db.teacherAbsences.put({ ...record, deletedAt: null, ...touchFields(actorId) });
+  emitAppDataChanged(['absences'], { date: record.date, reason: 'teacher-absence' });
 }
