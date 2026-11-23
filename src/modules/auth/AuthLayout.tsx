@@ -14,7 +14,7 @@ interface AuthLayoutProps {
 export function AuthLayout({ title, subtitle, onBack, children }: AuthLayoutProps) {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-dvh flex-col bg-neutral-50">
+    <div className="safe-pt safe-pb flex min-h-dvh flex-col bg-neutral-50">
       <header className="mx-auto flex w-full max-w-md items-center justify-between gap-4 px-6 pb-2 pt-6">
         {onBack ? (
           <button

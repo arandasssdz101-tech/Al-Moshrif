@@ -343,7 +343,7 @@ export function BatchMergeCenterScreen({ onBack }: BatchMergeCenterScreenProps) 
             <input
               type="file"
               multiple
-              accept=".edutrack,.json,application/json"
+              accept=".edutrack,.json,application/json,text/plain,application/octet-stream"
               className="sr-only"
               onChange={handleFileInput}
             />

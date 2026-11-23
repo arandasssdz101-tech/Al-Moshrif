@@ -2,6 +2,7 @@ import { useEffect, useId, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { registerAndroidBackHandler } from '@/utils/androidBack';
 
 interface ModalProps {
   open: boolean;
@@ -23,9 +24,14 @@ export function Modal({ open, title, description, onClose, children }: ModalProp
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKey);
+    const removeBackHandler = registerAndroidBackHandler(() => {
+      onClose();
+      return true;
+    });
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKey);
+      removeBackHandler();
     };
   }, [open, onClose]);
 
@@ -39,7 +45,7 @@ export function Modal({ open, title, description, onClose, children }: ModalProp
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 16px)' }}
+          style={{ paddingBottom: 'calc(max(env(safe-area-inset-bottom, 0px), var(--safe-area-inset-bottom, 0px)) + 16px)' }}
           className="pointer-events-auto max-h-[85vh] w-full max-w-md overflow-y-auto rounded-t-3xl bg-white p-6 shadow-xl animate-fade-up sm:rounded-3xl"
         >
           <div className="mb-2 flex items-start justify-between gap-4">

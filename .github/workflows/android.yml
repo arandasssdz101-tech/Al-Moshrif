@@ -71,30 +71,59 @@ jobs:
             echo "Applied custom launcher icons to android/app/src/main/res"
           fi
 
-      - name: Patch AndroidManifest (camera + barcode scanner)
+      - name: Patch AndroidManifest and Gradle (camera, barcode scanner, Android 7-16 compatibility)
         run: |
           python3 - <<'PY'
-          import pathlib
-          p = pathlib.Path("android/app/src/main/AndroidManifest.xml")
-          s = p.read_text(encoding="utf-8")
+          import pathlib, re
+
+          # 1. Patch AndroidManifest.xml
+          mp = pathlib.Path("android/app/src/main/AndroidManifest.xml")
+          ms = mp.read_text(encoding="utf-8")
+          app_attrs = [
+              ('android:enableOnBackInvokedCallback', 'android:enableOnBackInvokedCallback="true"'),
+              ('android:hardwareAccelerated', 'android:hardwareAccelerated="true"'),
+              ('android:largeHeap', 'android:largeHeap="true"'),
+              ('android:usesCleartextTraffic', 'android:usesCleartextTraffic="true"'),
+          ]
+          for attr_key, attr_val in app_attrs:
+              if attr_key not in ms:
+                  ms = ms.replace("<application", f"<application\n        {attr_val}", 1)
           add = ""
-          if "android.permission.CAMERA" not in s:
+          if "android.permission.CAMERA" not in ms:
               add += '    <uses-permission android:name="android.permission.CAMERA" />\n'
-          if "android.hardware.camera" not in s:
+          if "android.hardware.camera" not in ms:
               add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
           if add:
-              s = s.replace("</manifest>", add + "</manifest>")
-          if "com.google.mlkit.vision.DEPENDENCIES" not in s:
+              ms = ms.replace("</manifest>", add + "</manifest>")
+          if "com.google.mlkit.vision.DEPENDENCIES" not in ms:
               meta = '        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />\n'
-              s = s.replace("</application>", meta + "    </application>")
-          p.write_text(s, encoding="utf-8")
-          print(s)
+              ms = ms.replace("</application>", meta + "    </application>")
+          mp.write_text(ms, encoding="utf-8")
+          print(ms)
+
+          # 2. Patch android/app/build.gradle (MultiDex + VectorDrawables + 16KB page-size jniLibs)
+          gp = pathlib.Path("android/app/build.gradle")
+          gs = gp.read_text(encoding="utf-8")
+          if "multiDexEnabled" not in gs:
+              gs = re.sub(
+                  r'(versionName\s+"[^"]*")',
+                  r'\1\n        multiDexEnabled true\n        vectorDrawables.useSupportLibrary = true',
+                  gs,
+                  count=1,
+              )
+          if "useLegacyPackaging" not in gs:
+              gs = gs.replace(
+                  "    buildTypes {",
+                  "    packaging {\n        jniLibs {\n            useLegacyPackaging = false\n        }\n    }\n    buildTypes {",
+                  1,
+              )
+          gp.write_text(gs, encoding="utf-8")
           PY
 
       - name: Set app version from the run number
         run: |
           sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
-          grep -nE "versionCode|versionName" android/app/build.gradle
+          grep -nE "versionCode|versionName|multiDexEnabled|useLegacyPackaging" android/app/build.gradle
 
       - name: Use the stable debug keystore (so updates install over the old version)
         run: |

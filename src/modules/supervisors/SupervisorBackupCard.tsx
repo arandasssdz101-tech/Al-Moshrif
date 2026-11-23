@@ -128,7 +128,7 @@ export function SupervisorBackupCard() {
           <span>{importing ? t('supervisorSync.importingConsolidated') : t('supervisorSync.importConsolidatedButton')}</span>
           <input
             type="file"
-            accept=".edutrack,.json,application/json"
+            accept=".edutrack,.json,application/json,text/plain,application/octet-stream"
             className="sr-only"
             disabled={exporting || importing}
             onChange={handleImportConsolidated}

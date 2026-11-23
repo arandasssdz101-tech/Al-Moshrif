@@ -19,7 +19,7 @@ export function WelcomeScreen({ onCreate, onJoin, onLogin, onRestored }: Welcome
   const backup = useAuthBackupRestore(onRestored);
 
   return (
-    <div className="flex min-h-dvh flex-col bg-neutral-50">
+    <div className="safe-pt safe-pb flex min-h-dvh flex-col bg-neutral-50">
       <header className="mx-auto flex w-full max-w-md justify-end px-6 pt-6">
         <LanguageToggle />
       </header>

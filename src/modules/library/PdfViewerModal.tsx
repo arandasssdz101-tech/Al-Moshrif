@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { App as CapacitorApp } from '@capacitor/app';
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist';
 import {
   AlertTriangle,
@@ -19,7 +18,7 @@ import { Modal } from '@/components/ui/Modal';
 import { getLibraryFileBlob } from '@/db/library';
 import type { LibraryMeta } from '@/db/types';
 import { downloadBlob } from '@/utils/download';
-import { isNativeApp } from '@/utils/platform';
+import { registerAndroidBackHandler } from '@/utils/androidBack';
 import { destroyPdfDocument, openPdfDocument } from './pdfEngine';
 
 interface PdfViewerModalProps {
@@ -111,23 +110,23 @@ export function PdfViewerModal({
     };
     window.addEventListener('keydown', handleKeyDown);
 
-    let backListenerHandle: { remove: () => Promise<void> } | null = null;
-    if (isNativeApp) {
-      void CapacitorApp.addListener('backButton', () => {
-        onCloseRef.current();
-      })
-        .then((handle) => {
-          backListenerHandle = handle;
-        })
-        .catch(() => {});
-    }
+    const removeBackHandler = registerAndroidBackHandler(() => {
+      if (jumpOpen) {
+        setJumpOpen(false);
+        return true;
+      }
+      if (menuOpen) {
+        setMenuOpen(false);
+        return true;
+      }
+      onCloseRef.current();
+      return true;
+    });
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
-      if (backListenerHandle) {
-        void backListenerHandle.remove().catch(() => {});
-      }
+      removeBackHandler();
     };
   }, [jumpOpen, menuOpen]);
 

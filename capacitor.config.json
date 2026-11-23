@@ -1,5 +1,16 @@
 {
   "appId": "com.supeerwael.warlser",
   "appName": "الإشراف التربوي",
-  "webDir": "dist"
+  "webDir": "dist",
+  "android": {
+    "minWebViewVersion": 55,
+    "minHuaweiWebViewVersion": 10,
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "SystemBars": {
+      "insetsHandling": "css",
+      "initialViewportFitValueHint": "cover"
+    }
+  }
 }

@@ -5,6 +5,7 @@ import { BarcodeFormat, BarcodeScanner, LensFacing } from '@capacitor-mlkit/barc
 import { Flashlight, FlashlightOff, PencilLine, RefreshCw, ScanLine, Settings as SettingsIcon, SwitchCamera, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
+import { registerAndroidBackHandler } from '@/utils/androidBack';
 import { ScanResultBanner, type ScanBannerState } from './ScanResultBanner';
 
 const DUPLICATE_WINDOW_MS = 2000;
@@ -103,7 +104,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   const zxingReaderRef = useRef<unknown>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
-  const backHandlerRef = useRef<PluginListenerHandle | null>(null);
+  const backCleanupRef = useRef<(() => void) | null>(null);
   const scanningRef = useRef(false);
   const startingRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -166,9 +167,9 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
 
   const closeScanner = useCallback(() => {
     void stopNativeScan();
-    if (backHandlerRef.current) {
-      void backHandlerRef.current.remove().catch(() => undefined);
-      backHandlerRef.current = null;
+    if (backCleanupRef.current) {
+      backCleanupRef.current();
+      backCleanupRef.current = null;
     }
     onCloseRef.current();
   }, [stopNativeScan]);
@@ -243,27 +244,17 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
       await startWebFallback();
     });
 
-    if (Capacitor.isNativePlatform()) {
-      const appBridge = Capacitor as unknown as {
-        App?: { addListener: (event: string, cb: () => void) => Promise<PluginListenerHandle> };
-      };
-      appBridge.App?.addListener('backButton', () => {
-        void closeScanner();
-      }).then((handle: PluginListenerHandle) => {
-        if (cancelled) {
-          void handle.remove().catch(() => undefined);
-        } else {
-          backHandlerRef.current = handle;
-        }
-      }).catch(() => undefined);
-    }
+    backCleanupRef.current = registerAndroidBackHandler(() => {
+      closeScanner();
+      return true;
+    });
 
     return () => {
       cancelled = true;
       void stopNativeScan();
-      if (backHandlerRef.current) {
-        void backHandlerRef.current.remove().catch(() => undefined);
-        backHandlerRef.current = null;
+      if (backCleanupRef.current) {
+        backCleanupRef.current();
+        backCleanupRef.current = null;
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -507,7 +498,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />
       ) : null}
 
-      <div className="relative z-10 flex items-center justify-between gap-3 p-4">
+      <div className="safe-pt safe-px relative z-10 flex items-center justify-between gap-3 p-4">
         <button
           type="button"
           onClick={closeScanner}
@@ -631,7 +622,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         ) : null}
       </div>
 
-      <div className="relative z-10 p-4">
+      <div className="safe-pb safe-px relative z-10 p-4">
         <button
           type="button"
           onClick={onManual}

@@ -23,7 +23,7 @@ export function BottomTabs<T extends string>({ items, active, onChange }: Bottom
   }, [active]);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <nav className="safe-pb safe-px fixed inset-x-0 bottom-0 z-20 border-t border-neutral-200 bg-white/95 backdrop-blur">
       <ul
         ref={listRef}
         className="flex w-full touch-pan-x items-stretch overflow-x-auto overflow-y-hidden overscroll-x-contain px-2 py-1 [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"

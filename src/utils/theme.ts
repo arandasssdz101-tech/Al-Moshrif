@@ -1,3 +1,5 @@
+import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core';
+
 export type ThemeMode = 'light' | 'dark' | 'system';
 
 export type PresetColorId =
@@ -561,6 +563,12 @@ export function applyThemePreferences(prefs: ThemePreferences): void {
   if (metaTheme) {
     metaTheme.content = isDark ? '#0f172a' : getActiveSwatchHex(prefs);
   }
+
+  if (Capacitor.isNativePlatform()) {
+    void SystemBars.setStyle({
+      style: isDark ? SystemBarsStyle.Dark : SystemBarsStyle.Light,
+    }).catch(() => undefined);
+  }
 }
 
 export function initTheme(): ThemePreferences {
@@ -577,6 +585,8 @@ export function initTheme(): ThemePreferences {
     };
     if (typeof mql.addEventListener === 'function') {
       mql.addEventListener('change', handleChange);
+    } else if (typeof mql.addListener === 'function') {
+      mql.addListener(handleChange);
     }
   }
   return prefs;

@@ -18,13 +18,36 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function sanitizeNativeFilename(filename: string): string {
+  const cleaned = filename
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return cleaned || `edutrack-${Date.now()}.bin`;
+}
+
 async function shareNativeFile(blob: Blob, filename: string): Promise<void> {
-  const { uri } = await Filesystem.writeFile({
-    path: filename,
-    data: await blobToBase64(blob),
-    directory: Directory.Cache,
-    recursive: true,
-  });
+  const safePath = sanitizeNativeFilename(filename);
+  const base64Data = await blobToBase64(blob);
+  let uri: string;
+  try {
+    const written = await Filesystem.writeFile({
+      path: safePath,
+      data: base64Data,
+      directory: Directory.Cache,
+      recursive: true,
+    });
+    uri = written.uri;
+  } catch {
+    const fallback = await Filesystem.writeFile({
+      path: safePath,
+      data: base64Data,
+      directory: Directory.Data,
+      recursive: true,
+    });
+    uri = fallback.uri;
+  }
   await Share.share({ title: filename, files: [uri], dialogTitle: filename });
 }
 

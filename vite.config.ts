@@ -80,8 +80,15 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    target: ['es2017', 'chrome61', 'safari12'],
+    cssTarget: 'chrome61',
+  },
   optimizeDeps: {
     exclude: ['lucide-react'],
+    esbuildOptions: {
+      target: 'es2017',
+    },
   },
   server: {
     host: '0.0.0.0',

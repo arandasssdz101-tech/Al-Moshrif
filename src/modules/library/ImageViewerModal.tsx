@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { App as CapacitorApp } from '@capacitor/app';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -15,7 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { getLibraryFileBlob } from '@/db/library';
 import type { LibraryMeta } from '@/db/types';
 import { downloadBlob } from '@/utils/download';
-import { isNativeApp } from '@/utils/platform';
+import { registerAndroidBackHandler } from '@/utils/androidBack';
 
 interface ImageViewerModalProps {
   item: LibraryMeta;
@@ -70,24 +69,16 @@ export function ImageViewerModal({
     };
     window.addEventListener('keydown', handleKeyDown);
 
-    let backHandle: { remove: () => Promise<void> } | null = null;
-    if (isNativeApp) {
-      void CapacitorApp.addListener('backButton', () => {
-        onCloseRef.current();
-      })
-        .then((handle) => {
-          backHandle = handle;
-        })
-        .catch(() => {});
-    }
+    const removeBackHandler = registerAndroidBackHandler(() => {
+      onCloseRef.current();
+      return true;
+    });
 
     return () => {
       document.body.style.overflow = previousOverflow;
       window.removeEventListener('keydown', handleKeyDown);
       onSaveZoomRef.current(item.id, zoomRef.current);
-      if (backHandle) {
-        void backHandle.remove().catch(() => {});
-      }
+      removeBackHandler();
     };
   }, [item.id]);
 

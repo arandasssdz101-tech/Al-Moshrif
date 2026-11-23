@@ -33,6 +33,10 @@ function ScaledPage({ html, onSectionClick }: { html: string; onSectionClick: (s
       setBox({ scale, height: inner.offsetHeight * scale });
     };
     measure();
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure);
+      return () => window.removeEventListener('resize', measure);
+    }
     const observer = new ResizeObserver(measure);
     observer.observe(outer);
     observer.observe(inner);

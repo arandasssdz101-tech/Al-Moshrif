@@ -18,7 +18,7 @@ export function PendingScreen() {
   };
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center bg-neutral-50 px-6 py-10">
+    <div className="safe-pt safe-pb flex min-h-dvh flex-col items-center justify-center bg-neutral-50 px-6 py-10">
       <div className="flex w-full max-w-md flex-col items-center gap-6 text-center animate-fade-up">
         <AppLogo size="lg" />
         <div className={`flex size-16 items-center justify-center rounded-full ${rejected ? 'bg-danger-50 text-danger-700' : 'bg-warning-50 text-warning-700'}`}>

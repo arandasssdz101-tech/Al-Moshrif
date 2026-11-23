@@ -22,6 +22,7 @@ import { SearchScreen } from '@/modules/search/SearchScreen';
 import { CanteenScreen } from '@/modules/canteen/CanteenScreen';
 import { EntryScreen } from '@/modules/entry/EntryScreen';
 import { LibraryScreen } from '@/modules/library/LibraryScreen';
+import { registerAndroidBackHandler } from '@/utils/androidBack';
 
 const AbsenceDashboardScreen = lazy(() =>
   import('@/modules/dashboard/AbsenceDashboardScreen').then((module) => ({
@@ -54,6 +55,20 @@ export function AppShell() {
     void refreshUnread();
   }, [refreshUnread, tab]);
 
+  useEffect(() => {
+    return registerAndroidBackHandler(() => {
+      if (notifOpen) {
+        setNotifOpen(false);
+        return true;
+      }
+      if (tab !== 'home') {
+        setTab('home');
+        return true;
+      }
+      return false;
+    });
+  }, [notifOpen, tab]);
+
   const tabs: TabItem<TabId>[] = [
     { id: 'home', label: t('nav.home'), icon: Home },
     { id: 'dashboard', label: t('nav.dashboard'), icon: LayoutDashboard },
@@ -72,7 +87,7 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-neutral-50">
-      <header className="sticky top-0 z-20 border-b border-neutral-200/80 bg-white/90 backdrop-blur">
+      <header className="safe-pt safe-px sticky top-0 z-20 border-b border-neutral-200/80 bg-white/90 backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <AppLogo size="sm" />
