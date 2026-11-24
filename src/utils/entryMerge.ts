@@ -1,4 +1,5 @@
-import { ENTRY_RESULTS, ENTRY_SOURCES, type GateEntry } from '@/db/types';
+import { ENTRY_RESULTS, ENTRY_SESSIONS, ENTRY_SOURCES, type GateEntry } from '@/db/types';
+import { resolveEntrySession } from '@/utils/entry';
 
 export const ENTRY_EXPORT_FORMAT = 'school-admin-gate-entries';
 export const ENTRY_EXPORT_VERSION = 1;
@@ -38,6 +39,8 @@ function isGateEntry(value: unknown): value is GateEntry {
     typeof item.minutesLate === 'number' &&
     typeof item.source === 'string' &&
     (ENTRY_SOURCES as readonly string[]).includes(item.source) &&
+    (item.session === undefined ||
+      (typeof item.session === 'string' && (ENTRY_SESSIONS as readonly string[]).includes(item.session))) &&
     typeof item.createdAt === 'string' &&
     typeof item.updatedAt === 'string' &&
     (item.deletedAt === null || typeof item.deletedAt === 'string')
@@ -110,11 +113,12 @@ export function planEntryMerge(
     }
   }
 
-  // Group all active accepted entries by studentId + date; keep the earliest, downgrade later ones to duplicate.
+  // Group all active accepted entries by studentId + date + session; keep the earliest, downgrade later ones to duplicate.
   const acceptedByStudentDay = new Map<string, GateEntry[]>();
   for (const entry of byId.values()) {
     if (entry.deletedAt !== null || entry.result !== 'accepted' || !entry.studentId) continue;
-    const key = `${entry.date}|${entry.studentId}`;
+    const session = resolveEntrySession(entry);
+    const key = `${entry.date}|${session}|${entry.studentId}`;
     const list = acceptedByStudentDay.get(key) ?? [];
     list.push(entry);
     acceptedByStudentDay.set(key, list);

@@ -7,13 +7,17 @@ import {
   computeLateMissedPeriods,
   getEntrySettings,
   getOrCreateDeviceId,
+  isPeriodInSession,
   planAutoAbsencesForStart,
   planStudentGateAbsenceSync,
+  resolveEntrySession,
 } from '@/utils/entry';
 import { planEntryMerge, type EntryMergePlan } from '@/utils/entryMerge';
 import {
+  countGateEntriesBySession,
   planGateDateReset,
   summarizeGateDateForReset,
+  type EntryResetSessionScope,
   type GateDateResetOptions,
   type GateDateResetSummary,
 } from '@/utils/entryReset';
@@ -24,6 +28,7 @@ import { newBaseFields, touchFields } from './records';
 import type {
   EntryDayClosure,
   EntryResult,
+  EntrySession,
   EntrySource,
   GateEntry,
   Institution,
@@ -41,8 +46,12 @@ export interface EntryWorkspace {
   slots: TimetableSlot[];
 }
 
-export function closureIdFor(institutionId: string, date: string): string {
-  return `${institutionId}|${date}`;
+export function closureIdFor(
+  institutionId: string,
+  date: string,
+  session: EntrySession = 'morning',
+): string {
+  return session === 'evening' ? `${institutionId}|${date}|evening` : `${institutionId}|${date}`;
 }
 
 export async function loadEntryWorkspace(institutionId: string, actorId: string): Promise<EntryWorkspace> {
@@ -96,8 +105,12 @@ export async function listAllGateEntries(institutionId: string, date?: string): 
   return rows.sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
 }
 
-export async function getEntryDayClosure(institutionId: string, date: string): Promise<EntryDayClosure | null> {
-  return (await db.entryClosures.get(closureIdFor(institutionId, date))) ?? null;
+export async function getEntryDayClosure(
+  institutionId: string,
+  date: string,
+  session: EntrySession = 'morning',
+): Promise<EntryDayClosure | null> {
+  return (await db.entryClosures.get(closureIdFor(institutionId, date, session))) ?? null;
 }
 
 export async function listStudentAbsencesForDate(
@@ -116,6 +129,7 @@ export interface RecordGateEntryInput {
   scannedCode: string;
   date: string;
   time: string;
+  session?: EntrySession;
   result: EntryResult;
   late: boolean;
   minutesLate: number;
@@ -130,12 +144,14 @@ export async function recordGateEntry(
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
 
+  const session = input.session ?? resolveEntrySession({ time: input.time });
   const entry: GateEntry = {
     ...newBaseFields(institutionId, actorId),
     studentId: input.studentId,
     scannedCode: input.scannedCode,
     date: input.date,
     time: input.time,
+    session,
     result: input.result,
     late: input.late,
     minutesLate: input.minutesLate,
@@ -196,6 +212,7 @@ export async function ensureGateAutoAbsencesStarted(
   institutionId: string,
   actorId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<{ started: boolean; createdCount: number }> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) return { started: false, createdCount: 0 };
@@ -208,7 +225,7 @@ export async function ensureGateAutoAbsencesStarted(
     return { started: false, createdCount: 0 };
   }
 
-  const closureId = closureIdFor(institutionId, date);
+  const closureId = closureIdFor(institutionId, date, session);
   const existingClosure = await db.entryClosures.get(closureId);
   if (existingClosure?.autoAbsencesSyncedAt) {
     return { started: false, createdCount: 0 };
@@ -223,10 +240,14 @@ export async function ensureGateAutoAbsencesStarted(
   ]);
 
   const day = weekdayOfDate(date);
-  const hasScheduledLessonsToday = slots.some((slot) => Number(slot.day) === day);
+  const hasScheduledLessonsInSession = slots.some(
+    (slot) => Number(slot.day) === day && isPeriodInSession(slot.period, session, settings.eveningStartTime),
+  );
 
   const planned = planAutoAbsencesForStart({
     date,
+    session,
+    eveningStartTime: settings.eveningStartTime,
     students,
     slots,
     entries,
@@ -234,7 +255,7 @@ export async function ensureGateAutoAbsencesStarted(
     settings,
   });
 
-  if (planned.length === 0 && !hasScheduledLessonsToday) {
+  if (planned.length === 0 && !hasScheduledLessonsInSession) {
     return { started: false, createdCount: 0 };
   }
 
@@ -267,6 +288,7 @@ export async function ensureGateAutoAbsencesStarted(
       id: closureId,
       institutionId,
       date,
+      session,
       closed: latestClosure?.closed ?? false,
       closedAt: latestClosure?.closedAt ?? null,
       closedBy: latestClosure?.closedBy ?? null,
@@ -288,6 +310,7 @@ export async function syncStudentGateAbsenceOnAcceptedScan(
   date: string,
   entryTime: string,
   late: boolean,
+  session: EntrySession = 'morning',
 ): Promise<{ removedCount: number; addedCount: number; hasManualAbsence: boolean }> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) {
@@ -321,6 +344,8 @@ export async function syncStudentGateAbsenceOnAcceptedScan(
     date,
     entryTime,
     late,
+    session,
+    eveningStartTime: settings.eveningStartTime,
     slots,
     existingStudentAbsences: existingAbsences,
     markLateMissedLessons: settings.markLateMissedLessons,
@@ -367,6 +392,7 @@ export async function restoreStudentGateAbsencesAfterUndo(
   actorId: string,
   studentId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<number> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) return 0;
@@ -374,12 +400,13 @@ export async function restoreStudentGateAbsencesAfterUndo(
   const institution = await getInstitution(institutionId);
   if (!isCardAbsenceEnabled(institution)) return 0;
 
-  const closure = await db.entryClosures.get(closureIdFor(institutionId, date));
+  const closure = await db.entryClosures.get(closureIdFor(institutionId, date, session));
   if (!closure?.autoAbsencesSyncedAt) return 0;
 
   const holidaySet = new Set(institution.holidays.map((item) => item.date));
   if (!isSchoolDay(date, institution.workingDays, holidaySet)) return 0;
 
+  const settings = getEntrySettings(institution);
   const [student, entries, existingAbsences] = await Promise.all([
     db.students.get(studentId),
     listGateEntriesForDate(institutionId, date),
@@ -392,7 +419,7 @@ export async function restoreStudentGateAbsencesAfterUndo(
 
   if (!student || student.deletedAt !== null || !isEnrolledOn(student, date)) return 0;
 
-  const acceptedMap = acceptedEntryByStudent(entries, date);
+  const acceptedMap = acceptedEntryByStudent(entries, date, session, settings.eveningStartTime);
   if (acceptedMap.has(studentId)) return 0;
 
   const slots = await db.timetableSlots
@@ -400,7 +427,9 @@ export async function restoreStudentGateAbsencesAfterUndo(
     .equals(student.classId)
     .filter((item) => item.deletedAt === null)
     .toArray();
-  const lessons = classLessonsForDay(slots, student.classId, weekdayOfDate(date));
+  const lessons = classLessonsForDay(slots, student.classId, weekdayOfDate(date)).filter((lesson) =>
+    isPeriodInSession(lesson.period, session, settings.eveningStartTime),
+  );
   if (lessons.length === 0) return 0;
 
   const existingPeriods = new Set(existingAbsences.map((item) => item.period));
@@ -430,10 +459,13 @@ export async function clearGateAutoAbsencesForDay(
   institutionId: string,
   actorId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<number> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
 
+  const institution = await getInstitution(institutionId);
+  const settings = getEntrySettings(institution);
   const now = new Date().toISOString();
   let removed = 0;
 
@@ -441,7 +473,13 @@ export async function clearGateAutoAbsencesForDay(
     const records = await db.studentAbsences
       .where('institutionId')
       .equals(institutionId)
-      .filter((item) => item.deletedAt === null && item.date === date && item.source === 'gate')
+      .filter(
+        (item) =>
+          item.deletedAt === null &&
+          item.date === date &&
+          item.source === 'gate' &&
+          isPeriodInSession(item.period, session, settings.eveningStartTime),
+      )
       .toArray();
 
     for (const record of records) {
@@ -453,7 +491,7 @@ export async function clearGateAutoAbsencesForDay(
       removed += 1;
     }
 
-    const closureId = closureIdFor(institutionId, date);
+    const closureId = closureIdFor(institutionId, date, session);
     const existing = await db.entryClosures.get(closureId);
     if (existing) {
       await db.entryClosures.put({
@@ -480,6 +518,7 @@ export interface PlannedAbsenceItem {
 
 export interface CloseEntryDayPreview {
   date: string;
+  session: EntrySession;
   cardAbsenceEnabled: boolean;
   beforeTrackingStart: boolean;
   trackingStart: string | null;
@@ -492,6 +531,7 @@ export interface CloseEntryDayPreview {
 export async function previewCloseEntryDay(
   institutionId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<CloseEntryDayPreview> {
   const institution = await getInstitution(institutionId);
   const cardAbsenceEnabled = isCardAbsenceEnabled(institution);
@@ -502,6 +542,7 @@ export async function previewCloseEntryDay(
   if (!cardAbsenceEnabled) {
     return {
       date,
+      session,
       cardAbsenceEnabled,
       beforeTrackingStart,
       trackingStart,
@@ -521,9 +562,10 @@ export async function previewCloseEntryDay(
   ]);
 
   const classById = new Map(classes.map((item) => [item.id, item.name]));
-  const acceptedMap = acceptedEntryByStudent(entries, date);
+  const acceptedMap = acceptedEntryByStudent(entries, date, session, settings.eveningStartTime);
   const existingKeySet = new Set(existingAbsences.map((item) => `${item.studentId}|${item.period}`));
   const day = weekdayOfDate(date);
+  const fallbackPeriod = session === 'evening' ? 5 : 1;
 
   const absentStudents: PlannedAbsenceItem[] = [];
   const lateMissedStudents: PlannedAbsenceItem[] = [];
@@ -543,8 +585,10 @@ export async function previewCloseEntryDay(
     const studentName = `${student.firstName} ${student.lastName}`.trim();
 
     if (!accepted) {
-      const lessons = classLessonsForDay(slots, student.classId, day);
-      const targetLessons = lessons.length > 0 ? lessons : [{ period: 1, subject: '—' }];
+      const lessons = classLessonsForDay(slots, student.classId, day).filter((lesson) =>
+        isPeriodInSession(lesson.period, session, settings.eveningStartTime),
+      );
+      const targetLessons = lessons.length > 0 ? lessons : [{ period: fallbackPeriod, subject: '—' }];
       const newPeriods = targetLessons
         .filter((lesson) => !existingKeySet.has(`${student.id}|${lesson.period}`))
         .map((lesson) => ({ period: lesson.period, subject: lesson.subject }));
@@ -561,9 +605,14 @@ export async function previewCloseEntryDay(
         totalNewAbsenceRecords += newPeriods.length;
       }
     } else if (settings.markLateMissedLessons && accepted.late) {
-      const missed = computeLateMissedPeriods(student.classId, date, accepted.time, slots).filter(
-        (lesson) => !existingKeySet.has(`${student.id}|${lesson.period}`),
-      );
+      const missed = computeLateMissedPeriods(
+        student.classId,
+        date,
+        accepted.time,
+        slots,
+        session,
+        settings.eveningStartTime,
+      ).filter((lesson) => !existingKeySet.has(`${student.id}|${lesson.period}`));
       if (missed.length > 0) {
         lateMissedStudents.push({
           studentId: student.id,
@@ -580,6 +629,7 @@ export async function previewCloseEntryDay(
 
   return {
     date,
+    session,
     cardAbsenceEnabled,
     beforeTrackingStart,
     trackingStart,
@@ -594,11 +644,12 @@ export async function closeEntryDay(
   institutionId: string,
   actorId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<{ closure: EntryDayClosure; createdAbsencesCount: number }> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
 
-  const preview = await previewCloseEntryDay(institutionId, date);
+  const preview = await previewCloseEntryDay(institutionId, date, session);
   const now = new Date().toISOString();
   const createdIds: string[] = [];
 
@@ -624,16 +675,18 @@ export async function closeEntryDay(
     }
   }
 
+  const id = closureIdFor(institutionId, date, session);
   await db.transaction('rw', [db.studentAbsences, db.entryClosures], async () => {
-    const existingClosure = await db.entryClosures.get(closureIdFor(institutionId, date));
+    const existingClosure = await db.entryClosures.get(id);
     if (toInsert.length > 0) {
       await db.studentAbsences.bulkAdd(toInsert);
     }
     const prevIds = existingClosure?.createdAbsenceIds ?? [];
     const closure: EntryDayClosure = {
-      id: closureIdFor(institutionId, date),
+      id,
       institutionId,
       date,
+      session,
       closed: true,
       closedAt: now,
       closedBy: actorId,
@@ -646,7 +699,7 @@ export async function closeEntryDay(
     await db.entryClosures.put(closure);
   });
 
-  const savedClosure = (await db.entryClosures.get(closureIdFor(institutionId, date)))!;
+  const savedClosure = (await db.entryClosures.get(id))!;
   emitAppDataChanged(['entries', 'absences', 'sync'], { date, reason: 'close-entry-day' });
   return { closure: savedClosure, createdAbsencesCount: createdIds.length };
 }
@@ -655,14 +708,17 @@ export async function undoCloseEntryDay(
   institutionId: string,
   actorId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<number> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
 
-  const id = closureIdFor(institutionId, date);
+  const id = closureIdFor(institutionId, date, session);
   const existing = await db.entryClosures.get(id);
   if (!existing) return 0;
 
+  const institution = await getInstitution(institutionId);
+  const settings = getEntrySettings(institution);
   const now = new Date().toISOString();
   let removed = 0;
 
@@ -683,7 +739,14 @@ export async function undoCloseEntryDay(
     const remainingGateRecords = await db.studentAbsences
       .where('institutionId')
       .equals(institutionId)
-      .filter((item) => item.deletedAt === null && item.date === date && item.source === 'gate' && !handledIds.has(item.id))
+      .filter(
+        (item) =>
+          item.deletedAt === null &&
+          item.date === date &&
+          item.source === 'gate' &&
+          !handledIds.has(item.id) &&
+          isPeriodInSession(item.period, session, settings.eveningStartTime),
+      )
       .toArray();
     for (const record of remainingGateRecords) {
       await db.studentAbsences.put({
@@ -711,11 +774,12 @@ export async function reopenEntryDay(
   institutionId: string,
   actorId: string,
   date: string,
+  session: EntrySession = 'morning',
 ): Promise<void> {
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
 
-  const id = closureIdFor(institutionId, date);
+  const id = closureIdFor(institutionId, date, session);
   const existing = await db.entryClosures.get(id);
   if (!existing) return;
 
@@ -744,18 +808,21 @@ export async function importGateEntries(
     });
 
     const institution = await getInstitution(institutionId);
+    const settings = getEntrySettings(institution);
     if (isCardAbsenceEnabled(institution)) {
-      const acceptedByDate = new Map<string, GateEntry[]>();
+      const acceptedByDateSession = new Map<string, { date: string; session: EntrySession; entries: GateEntry[] }>();
       for (const entry of plan.toPut) {
         if (entry.deletedAt !== null || entry.result !== 'accepted' || !entry.studentId) continue;
-        const list = acceptedByDate.get(entry.date) ?? [];
-        list.push(entry);
-        acceptedByDate.set(entry.date, list);
+        const session = resolveEntrySession(entry, settings.eveningStartTime);
+        const key = `${entry.date}|${session}`;
+        const group = acceptedByDateSession.get(key) ?? { date: entry.date, session, entries: [] };
+        group.entries.push(entry);
+        acceptedByDateSession.set(key, group);
       }
 
-      for (const [date, dateEntries] of acceptedByDate.entries()) {
-        await ensureGateAutoAbsencesStarted(institutionId, actorId, date);
-        for (const entry of dateEntries) {
+      for (const group of acceptedByDateSession.values()) {
+        await ensureGateAutoAbsencesStarted(institutionId, actorId, group.date, group.session);
+        for (const entry of group.entries) {
           if (!entry.studentId) continue;
           const student = await db.students.get(entry.studentId);
           if (!student || student.deletedAt !== null) continue;
@@ -763,9 +830,10 @@ export async function importGateEntries(
             institutionId,
             actorId,
             student,
-            date,
+            group.date,
             entry.time,
             entry.late,
+            group.session,
           );
         }
       }
@@ -778,22 +846,67 @@ export async function importGateEntries(
 
 export interface ResetGateEntriesForDateResult {
   date: string;
+  session: EntryResetSessionScope;
   removedEntriesCount: number;
   removedGateAbsencesCount: number;
   closureReset: boolean;
 }
 
+export interface GateDateResetPreview extends GateDateResetSummary {
+  morningEntriesCount: number;
+  eveningEntriesCount: number;
+}
+
+function combineClosures(
+  morning: EntryDayClosure | null,
+  evening: EntryDayClosure | null,
+): Pick<EntryDayClosure, 'closed' | 'autoAbsencesSyncedAt' | 'createdAbsenceIds'> | null {
+  if (!morning && !evening) return null;
+  return {
+    closed: Boolean(morning?.closed || evening?.closed),
+    autoAbsencesSyncedAt: morning?.autoAbsencesSyncedAt ?? evening?.autoAbsencesSyncedAt ?? null,
+    createdAbsenceIds: [
+      ...(morning?.createdAbsenceIds ?? []),
+      ...(evening?.createdAbsenceIds ?? []),
+    ],
+  };
+}
+
 export async function getGateDateResetPreview(
   institutionId: string,
   date: string,
-): Promise<GateDateResetSummary> {
+  session: EntryResetSessionScope = 'all',
+): Promise<GateDateResetPreview> {
   if (!isIsoDate(date)) throw new DomainError('validation.invalidDate');
-  const [entries, absences, closure] = await Promise.all([
+  const [institution, entries, absences, morningClosure, eveningClosure] = await Promise.all([
+    getInstitution(institutionId),
     listGateEntriesForDate(institutionId, date),
     listStudentAbsencesForDate(institutionId, date),
-    getEntryDayClosure(institutionId, date),
+    getEntryDayClosure(institutionId, date, 'morning'),
+    getEntryDayClosure(institutionId, date, 'evening'),
   ]);
-  return summarizeGateDateForReset(date, entries, absences, closure);
+  const settings = getEntrySettings(institution);
+  const closure =
+    session === 'all'
+      ? combineClosures(morningClosure, eveningClosure)
+      : session === 'evening'
+        ? eveningClosure
+        : morningClosure;
+
+  const summary = summarizeGateDateForReset(
+    date,
+    entries,
+    absences,
+    closure,
+    session,
+    settings.eveningStartTime,
+  );
+  const counts = countGateEntriesBySession(date, entries, settings.eveningStartTime);
+  return {
+    ...summary,
+    morningEntriesCount: counts.morning,
+    eveningEntriesCount: counts.evening,
+  };
 }
 
 export async function resetGateEntriesForDate(
@@ -806,13 +919,16 @@ export async function resetGateEntriesForDate(
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
   if (!isIsoDate(date)) throw new DomainError('validation.invalidDate');
 
+  const institution = await getInstitution(institutionId);
+  const settings = getEntrySettings(institution);
+  const session: EntryResetSessionScope = options?.session ?? 'all';
   const now = new Date().toISOString();
   let removedEntriesCount = 0;
   let removedGateAbsencesCount = 0;
   let closureReset = false;
 
   await db.transaction('rw', [db.entries, db.studentAbsences, db.entryClosures], async () => {
-    const [entries, absences, closure] = await Promise.all([
+    const [entries, absences, morningClosure, eveningClosure] = await Promise.all([
       db.entries
         .where('date')
         .equals(date)
@@ -823,10 +939,22 @@ export async function resetGateEntriesForDate(
         .equals(institutionId)
         .filter((record) => record.deletedAt === null && record.date === date)
         .toArray(),
-      db.entryClosures.get(closureIdFor(institutionId, date)),
+      db.entryClosures.get(closureIdFor(institutionId, date, 'morning')),
+      db.entryClosures.get(closureIdFor(institutionId, date, 'evening')),
     ]);
 
-    const plan = planGateDateReset(date, entries, absences, closure ?? null, options);
+    const targetClosure =
+      session === 'all'
+        ? combineClosures(morningClosure ?? null, eveningClosure ?? null)
+        : session === 'evening'
+          ? (eveningClosure ?? null)
+          : (morningClosure ?? null);
+
+    const plan = planGateDateReset(date, entries, absences, targetClosure, {
+      ...options,
+      session,
+      eveningStartTime: settings.eveningStartTime,
+    });
     const entryDeleteIds = new Set(plan.entryIdsToDelete);
     const absenceDeleteIds = new Set(plan.gateAbsenceIdsToDelete);
 
@@ -850,17 +978,26 @@ export async function resetGateEntriesForDate(
       removedGateAbsencesCount += 1;
     }
 
-    if (plan.shouldResetClosure && closure) {
-      await db.entryClosures.put({
-        ...closure,
-        closed: false,
-        closedAt: null,
-        closedBy: null,
-        autoAbsencesSyncedAt: null,
-        createdAbsenceIds: [],
-        updatedAt: now,
-      });
-      closureReset = true;
+    if (plan.shouldResetClosure) {
+      const closuresToReset =
+        session === 'all'
+          ? [morningClosure, eveningClosure]
+          : session === 'evening'
+            ? [eveningClosure]
+            : [morningClosure];
+      for (const closure of closuresToReset) {
+        if (!closure) continue;
+        await db.entryClosures.put({
+          ...closure,
+          closed: false,
+          closedAt: null,
+          closedBy: null,
+          autoAbsencesSyncedAt: null,
+          createdAbsenceIds: [],
+          updatedAt: now,
+        });
+        closureReset = true;
+      }
     }
   });
 
@@ -868,8 +1005,10 @@ export async function resetGateEntriesForDate(
 
   return {
     date,
+    session,
     removedEntriesCount,
     removedGateAbsencesCount,
     closureReset,
   };
 }
+

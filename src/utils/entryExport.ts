@@ -6,6 +6,7 @@ import type { DailyEntryStats } from '@/utils/entry';
 
 export interface EntryLogExportRow {
   time: string;
+  periodLabel: string;
   studentName: string;
   className: string;
   boardingLabel: string;
@@ -31,6 +32,7 @@ export interface EntryLogExportMeta {
     duplicates: string;
     unknown: string;
     time: string;
+    period: string;
     student: string;
     className: string;
     status: string;
@@ -55,14 +57,15 @@ export async function exportEntryLogExcel(
   const ws = workbook.addWorksheet(meta.title.slice(0, 31) || 'Entry Log');
   ws.views = [{ rightToLeft: meta.isRtl, showGridLines: true }];
   ws.columns = [
+    { width: 11 },
+    { width: 13 },
+    { width: 25 },
     { width: 12 },
-    { width: 26 },
     { width: 13 },
     { width: 14 },
-    { width: 15 },
-    { width: 14 },
-    { width: 13 },
-    { width: 22 },
+    { width: 12 },
+    { width: 12 },
+    { width: 20 },
   ];
 
   const alignMain: Partial<ExcelJS.Alignment> = {
@@ -77,7 +80,7 @@ export async function exportEntryLogExcel(
   };
 
   // Title row
-  ws.mergeCells(1, 1, 1, 8);
+  ws.mergeCells(1, 1, 1, 9);
   const titleCell = ws.getCell(1, 1);
   titleCell.value = `${meta.title} — ${meta.institutionName}`;
   titleCell.font = { name: 'Arial', size: 13, bold: true };
@@ -85,7 +88,7 @@ export async function exportEntryLogExcel(
   ws.getRow(1).height = 24;
 
   // Summary strip row
-  ws.mergeCells(2, 1, 2, 8);
+  ws.mergeCells(2, 1, 2, 9);
   const summaryCell = ws.getCell(2, 1);
   summaryCell.value = `${meta.labels.date}: ${meta.date}   |   ${meta.labels.entered}: ${meta.stats.entered}/${meta.stats.enrolled}   |   ${meta.labels.notEntered}: ${meta.stats.notEntered}   |   ${meta.labels.late}: ${meta.stats.late}   |   ${meta.labels.duplicates}: ${meta.stats.duplicates}   |   ${meta.labels.unknown}: ${meta.stats.unknown}`;
   summaryCell.font = { name: 'Arial', size: 10, bold: true };
@@ -95,6 +98,7 @@ export async function exportEntryLogExcel(
   // Table header
   const headers = [
     meta.labels.time,
+    meta.labels.period,
     meta.labels.student,
     meta.labels.className,
     meta.labels.status,
@@ -118,6 +122,7 @@ export async function exportEntryLogExcel(
     excelRow.height = 19;
     const values = [
       row.time,
+      row.periodLabel,
       row.studentName,
       row.className,
       row.boardingLabel,
@@ -130,7 +135,7 @@ export async function exportEntryLogExcel(
       const cell = excelRow.getCell(colIdx + 1);
       cell.value = value;
       cell.font = { name: 'Arial', size: 9.5 };
-      cell.alignment = colIdx === 1 || colIdx === 7 ? alignMain : alignCenter;
+      cell.alignment = colIdx === 2 || colIdx === 8 ? alignMain : alignCenter;
       if (index % 2 === 1) {
         cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
       }
@@ -173,14 +178,15 @@ export async function exportEntryLogPdf(
   const fontStack = 'Cairo, "Segoe UI", Tahoma, Arial, sans-serif';
 
   const colSpecs = [
-    { label: meta.labels.time, width: 0.11 },
-    { label: meta.labels.student, width: 0.25 },
-    { label: meta.labels.className, width: 0.1 },
-    { label: meta.labels.status, width: 0.12 },
-    { label: meta.labels.result, width: 0.13 },
-    { label: meta.labels.delay, width: 0.1 },
-    { label: meta.labels.source, width: 0.09 },
-    { label: meta.labels.code, width: 0.1 },
+    { label: meta.labels.time, width: 0.1 },
+    { label: meta.labels.period, width: 0.1 },
+    { label: meta.labels.student, width: 0.22 },
+    { label: meta.labels.className, width: 0.09 },
+    { label: meta.labels.status, width: 0.11 },
+    { label: meta.labels.result, width: 0.12 },
+    { label: meta.labels.delay, width: 0.09 },
+    { label: meta.labels.source, width: 0.08 },
+    { label: meta.labels.code, width: 0.09 },
   ];
 
   const orderedCols = meta.isRtl ? [...colSpecs].reverse() : colSpecs;
@@ -259,6 +265,7 @@ export async function exportEntryLogPdf(
 
       const values = [
         row.time,
+        row.periodLabel,
         row.studentName,
         row.className,
         row.boardingLabel,

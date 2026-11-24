@@ -4,7 +4,11 @@ import type {
   CanteenRejectReason,
   Student,
 } from '../db/types';
-import { parseStudentQrPayload } from './studentQr';
+import {
+  deriveStableStudentCardKey,
+  matchStudentByParsedQr,
+  parseStudentQrPayload,
+} from './studentQr';
 
 export function findStudentByCode(
   students: Student[],
@@ -13,20 +17,18 @@ export function findStudentByCode(
 ): Student | null {
   const code = scanned.trim();
   if (!code) return null;
+  const active = students.filter((student) => !student.deletedAt);
   const parsedQr = parseStudentQrPayload(code);
   if (parsedQr) {
-    const byQrId = students.find(
-      (student) =>
-        !student.deletedAt &&
-        (student.id === parsedQr.id || (student.cardCode ?? '').trim() === parsedQr.id),
-    );
-    if (byQrId) return byQrId;
+    return matchStudentByParsedQr(active, parsedQr);
   }
   return (
-    students.find((student) => {
-      if (student.deletedAt) return false;
+    active.find((student) => {
       if (field === 'studentId') return student.id === code;
-      return (student.cardCode ?? '').trim() === code;
+      return (
+        (student.cardCode ?? '').trim() === code ||
+        deriveStableStudentCardKey(student) === code
+      );
     }) ?? null
   );
 }

@@ -39,6 +39,7 @@ export interface Institution extends BaseRecord {
   cardAbsenceEnabled?: boolean;
   librarySupervisorsCanManage?: boolean;
   entryStartTime?: string;
+  entryEveningStartTime?: string;
   entryLateAfterMinutes?: number;
   entryUseFirstTimetableLesson?: boolean;
   entrySoundEnabled?: boolean;
@@ -227,6 +228,7 @@ export interface DailyReportRecord {
   canteenNote: string;
   mealServed: string;
   plannedMeal: string;
+  canteenEnteredCount?: number | null;
   canteenSupervisors?: string[];
   supervisorRows: SupervisorAbsenceRow[];
   teacherNotes: Record<string, string>;
@@ -263,6 +265,9 @@ export interface LibraryFile {
   hash: string;
 }
 
+export const ENTRY_SESSIONS = ['morning', 'evening'] as const;
+export type EntrySession = (typeof ENTRY_SESSIONS)[number];
+
 export const ENTRY_RESULTS = ['accepted', 'duplicate', 'unknown', 'left', 'holiday'] as const;
 export type EntryResult = (typeof ENTRY_RESULTS)[number];
 
@@ -274,6 +279,7 @@ export interface GateEntry extends BaseRecord {
   scannedCode: string;
   date: string;
   time: string;
+  session?: EntrySession;
   result: EntryResult;
   late: boolean;
   minutesLate: number;
@@ -286,6 +292,7 @@ export interface EntryDayClosure {
   id: string;
   institutionId: string;
   date: string;
+  session?: EntrySession;
   closed: boolean;
   closedAt: string | null;
   closedBy: string | null;

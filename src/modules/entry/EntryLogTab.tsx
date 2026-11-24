@@ -13,10 +13,11 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
-import type { GateEntry } from '@/db/types';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import type { EntrySession, GateEntry } from '@/db/types';
 import { importGateEntries, listAllGateEntries, type EntryWorkspace } from '@/db/entries';
 import { downloadBlob } from '@/utils/download';
-import { computeEntryStats } from '@/utils/entry';
+import { computeEntryStats, getEntrySettings, resolveEntrySession } from '@/utils/entry';
 import { exportEntryLogExcel, exportEntryLogPdf, type EntryLogExportRow } from '@/utils/entryExport';
 import { buildEntryExport, parseEntryExport } from '@/utils/entryMerge';
 import { studentFullName } from '@/utils/studentQr';
@@ -44,6 +45,8 @@ export function EntryLogTab({
 }: EntryLogTabProps) {
   const { t, i18n } = useTranslation();
   const { access, institution, classes, students } = workspace;
+  const settings = useMemo(() => getEntrySettings(institution), [institution]);
+  const [sessionFilter, setSessionFilter] = useState<'all' | EntrySession>('all');
   const [resultFilter, setResultFilter] = useState<LogResultFilter>('all');
   const [classFilter, setClassFilter] = useState<string>('all');
   const [exporting, setExporting] = useState<'excel' | 'pdf' | 'json' | null>(null);
@@ -51,12 +54,23 @@ export function EntryLogTab({
   const [mergeError, setMergeError] = useState<string | null>(null);
 
   const isRtl = i18n.language === 'ar';
+  const scopedSession = sessionFilter === 'all' ? undefined : sessionFilter;
   const classById = useMemo(() => new Map(classes.map((item) => [item.id, item.name])), [classes]);
   const studentById = useMemo(() => new Map(students.map((item) => [item.id, item])), [students]);
-  const stats = useMemo(() => computeEntryStats(students, entries, date), [students, entries, date]);
+  const stats = useMemo(
+    () => computeEntryStats(students, entries, date, scopedSession, settings.eveningStartTime),
+    [students, entries, date, scopedSession, settings.eveningStartTime],
+  );
 
   const filteredEntries = useMemo(() => {
     return entries.filter((entry) => {
+      if (
+        sessionFilter !== 'all' &&
+        resolveEntrySession(entry, settings.eveningStartTime) !== sessionFilter
+      ) {
+        return false;
+      }
+
       if (resultFilter === 'late') {
         if (entry.result !== 'accepted' || !entry.late) return false;
       } else if (resultFilter !== 'all') {
@@ -70,13 +84,15 @@ export function EntryLogTab({
 
       return true;
     });
-  }, [entries, resultFilter, classFilter, studentById]);
+  }, [entries, sessionFilter, settings.eveningStartTime, resultFilter, classFilter, studentById]);
 
   const buildExportRows = (): EntryLogExportRow[] =>
     filteredEntries.map((entry) => {
       const student = entry.studentId ? studentById.get(entry.studentId) : undefined;
+      const entrySession = resolveEntrySession(entry, settings.eveningStartTime);
       return {
         time: entry.time.slice(0, 8),
+        periodLabel: t(`entry.sessions.${entrySession}Short`),
         studentName: student ? studentFullName(student) : t('entry.log.unknownStudent'),
         className: student ? (classById.get(student.classId) ?? '—') : '—',
         boardingLabel: student
@@ -110,6 +126,7 @@ export function EntryLogTab({
       duplicates: t('entry.stats.duplicates'),
       unknown: t('entry.stats.unknown'),
       time: t('entry.log.colTime'),
+      period: t('entry.log.colPeriod'),
       student: t('entry.log.colStudent'),
       className: t('entry.today.colClass'),
       status: t('entry.log.colStatus'),
@@ -192,18 +209,25 @@ export function EntryLogTab({
       {/* Daily summary strip */}
       <section className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
-            {t('entry.today.selectDate')}
-            <input
-              type="date"
-              value={date}
-              max={today}
-              onChange={(event) => {
-                if (event.target.value) onDateChange(event.target.value);
-              }}
-              className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900"
-            />
-          </label>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
+              {t('entry.today.selectDate')}
+              <input
+                type="date"
+                value={date}
+                max={today}
+                onChange={(event) => {
+                  if (event.target.value) onDateChange(event.target.value);
+                }}
+                className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900"
+              />
+            </label>
+            {date !== today ? (
+              <Button type="button" variant="secondary" onClick={() => onDateChange(today)}>
+                {t('entry.today.backToToday')}
+              </Button>
+            ) : null}
+          </div>
 
           <div className="flex flex-wrap gap-2">
             <Button
@@ -253,6 +277,16 @@ export function EntryLogTab({
 
       {/* Filters */}
       <section className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
+        <SegmentedControl<'all' | EntrySession>
+          options={[
+            { id: 'all', label: t('entry.sessions.all') },
+            { id: 'morning', label: t('entry.sessions.morning') },
+            { id: 'evening', label: `${t('entry.sessions.evening')} (${settings.eveningStartTime})` },
+          ]}
+          value={sessionFilter}
+          onChange={setSessionFilter}
+        />
+
         <div className="flex flex-wrap gap-1.5">
           {filterChips.map((chip) => {
             const active = resultFilter === chip.id;
@@ -336,6 +370,9 @@ export function EntryLogTab({
                         {student ? (
                           <span className="font-semibold">{classById.get(student.classId) ?? ''}</span>
                         ) : null}
+                        <span className="rounded-md bg-neutral-100 px-1.5 py-0.5 text-[11px] font-semibold text-neutral-700">
+                          {t(`entry.sessions.${resolveEntrySession(entry, settings.eveningStartTime)}Short`)}
+                        </span>
                         <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold ${toneClass}`}>
                           {entry.result === 'accepted' && entry.late
                             ? t('entry.results.lateMinutes', { minutes: entry.minutesLate })

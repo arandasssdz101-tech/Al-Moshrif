@@ -102,8 +102,8 @@ function worksheetText(ws: import('exceljs').Worksheet): string {
   return values.join(' | ');
 }
 
-describe('daily report HTML and Excel (Page 1 & Page 2)', () => {
-  it('generates both A4 report pages linked with teachers, canteen, students, parent notices, and shared notes', () => {
+describe('daily report HTML and Excel (Page 1, Page 2, and Page 3+ overflow)', () => {
+  it('places short notes on Page 1 only without repeating them on Page 2', () => {
     const pages = buildDailyReportHtml(SAMPLE_RENDER);
     expect(pages).toHaveLength(2);
 
@@ -129,12 +129,72 @@ describe('daily report HTML and Excel (Page 1 & Page 2)', () => {
     expect(page2).toContain('مراسلات الأولياء');
     expect(page2).toContain('غياب متكرر');
     expect(page2).toContain('ملاحظات و اقتراحات');
-    expect(page2).toContain('نظافة الساحة جيدة، إجراء نشاط ثقافي');
-    expect(page2).toContain('مشكور على المجهود');
+    // Notes that fit on Page 1 must NOT repeat on Page 2
+    expect(page2).not.toContain('نظافة الساحة جيدة، إجراء نشاط ثقافي');
+    expect(page2).not.toContain('مشكور على المجهود');
     expect(page2).toContain('العفرون في : 20 / 11 / 2026');
   });
 
-  it('builds a professionally styled, RTL, print-ready Excel workbook for both Page 1 and Page 2', async () => {
+  it('flows notes from Page 1 to Page 2 without duplication when Page 1 fills up', () => {
+    const counselorLines = Array.from({ length: 18 }, (_, idx) => `ملاحظة المستشار رقم ${idx + 1}: متابعة الساحة والنظافة.`);
+    const render: DailyReportRender = {
+      ...SAMPLE_RENDER,
+      counselorNotes: counselorLines.join('\n'),
+      directorNotes: 'توجيهات مختصرة',
+    };
+
+    const pages = buildDailyReportHtml(render);
+    expect(pages).toHaveLength(2);
+    const [page1, page2] = pages;
+
+    expect(page1).toContain('ملاحظة المستشار رقم 1:');
+    expect(page1).not.toContain('ملاحظة المستشار رقم 18:');
+    expect(page2).toContain('ملاحظة المستشار رقم 18:');
+    expect(page2).not.toContain('ملاحظة المستشار رقم 1:');
+    // Short director note fit on Page 1, so it does not repeat on Page 2
+    expect(page1).toContain('توجيهات مختصرة');
+    expect(page2).not.toContain('توجيهات مختصرة');
+  });
+
+  it('creates a third continuation page for Page 2 when notes overflow both Page 1 and Page 2', async () => {
+    const counselorLines = Array.from({ length: 38 }, (_, idx) => `بند المستشار رقم ${idx + 1}: تفقد التلاميذ والصيانة.`);
+    const directorLines = Array.from({ length: 16 }, (_, idx) => `قرار المدير رقم ${idx + 1}: متابعة الانضباط التربوي.`);
+    const render: DailyReportRender = {
+      ...SAMPLE_RENDER,
+      counselorNotes: counselorLines.join('\n'),
+      directorNotes: directorLines.join('\n'),
+    };
+
+    const pages = buildDailyReportHtml(render);
+    expect(pages.length).toBeGreaterThanOrEqual(3);
+    const [page1, page2, page3] = pages;
+
+    // First items start on Page 1 and never repeat on Page 2 or Page 3
+    expect(page1).toContain('بند المستشار رقم 1:');
+    expect(page2).not.toContain('بند المستشار رقم 1:');
+    expect(page3).not.toContain('بند المستشار رقم 1:');
+
+    // Page 3 is created as continuation of Page 2 and receives the remaining overflow
+    expect(page3).toContain('تتمة ملاحظات الصفحة الثانية');
+    expect(page3).toContain('بند المستشار رقم 38:');
+    expect(page2).not.toContain('بند المستشار رقم 38:');
+    expect(page3).toContain('قرار المدير رقم 16:');
+    expect(page2).not.toContain('قرار المدير رقم 16:');
+    expect(page3).toContain('العفرون في : 20 / 11 / 2026');
+
+    // Excel workbook also creates Sheet 3 without repeating notes
+    const workbook = buildDailyReportWorkbook(render);
+    expect(workbook.worksheets.length).toBe(pages.length);
+    const flat1 = worksheetText(workbook.worksheets[0]);
+    const flat2 = worksheetText(workbook.worksheets[1]);
+    const flat3 = worksheetText(workbook.worksheets[2]);
+    expect(flat1).toContain('بند المستشار رقم 1:');
+    expect(flat2).not.toContain('بند المستشار رقم 1:');
+    expect(flat3).toContain('بند المستشار رقم 38:');
+    expect(flat2).not.toContain('بند المستشار رقم 38:');
+  });
+
+  it('builds a professionally styled, RTL, print-ready Excel workbook for Page 1 and Page 2', async () => {
     const workbook = buildDailyReportWorkbook(SAMPLE_RENDER);
     expect(workbook.worksheets).toHaveLength(2);
 
@@ -169,8 +229,8 @@ describe('daily report HTML and Excel (Page 1 & Page 2)', () => {
     expect(flat2).toContain('18/11/2026');
     expect(flat2).toContain('مراسلات الأولياء');
     expect(flat2).toContain('غياب متكرر');
-    expect(flat2).toContain('نظافة الساحة جيدة، إجراء نشاط ثقافي');
-    expect(flat2).toContain('مشكور على المجهود');
+    expect(flat2).not.toContain('نظافة الساحة جيدة، إجراء نشاط ثقافي');
+    expect(flat2).not.toContain('مشكور على المجهود');
     expect(flat2).toContain('العفرون في : 20 / 11 / 2026');
     // Verify center divider border and header fill exist on Page 2
     expect(sheet2.getCell(2, 1).fill).toBeDefined();

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
-import { CalendarOff, CheckCircle2, ClipboardList, QrCode, Save, ScanLine } from 'lucide-react';
+import { CalendarOff, CheckCircle2, ClipboardList, QrCode, Save, ScanLine, UserPlus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { FilterChip } from '@/components/ui/FilterChip';
@@ -20,6 +20,7 @@ import { classLessonsForDay, isIsoDate, summarizeStudentAbsences, weekdayOfDate,
 import { PERIODS } from '@/utils/schedule';
 import { todayIso } from '@/utils/dates';
 import { errorKey } from '@/utils/errors';
+import { isStudentActive } from '@/utils/statistics';
 import { currentPeriodNumber, matchStudentFromScan } from '@/utils/studentQr';
 
 type DraftEntries = Map<string, StudentAbsenceEntry>;
@@ -53,13 +54,38 @@ function periodStartHour(periodNumber: number): string {
 interface StudentAbsencesViewProps {
   data: AbsenceWorkspace;
   onSaved: () => void;
+  selectedClassId?: string | null;
+  onSelectClass?: (classId: string) => void;
+  date?: string;
+  onDateChange?: (date: string) => void;
+  canAddStudent?: boolean;
+  onAddStudent?: (classId: string | null) => void;
 }
 
-export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps) {
-  const { t } = useTranslation();
+export function StudentAbsencesView({
+  data,
+  onSaved,
+  selectedClassId: controlledClassId,
+  onSelectClass,
+  date: controlledDate,
+  onDateChange,
+  canAddStudent = false,
+  onAddStudent,
+}: StudentAbsencesViewProps) {
+  const { t, i18n } = useTranslation();
   const { user, institution, refresh } = useSession();
-  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
-  const [date, setDate] = useState(todayIso);
+  const [localClassId, setLocalClassId] = useState<string | null>(null);
+  const [localDate, setLocalDate] = useState(todayIso);
+  const selectedClassId = controlledClassId !== undefined ? controlledClassId : localClassId;
+  const setSelectedClassId = (classId: string) => {
+    setLocalClassId(classId);
+    onSelectClass?.(classId);
+  };
+  const date = controlledDate !== undefined ? controlledDate : localDate;
+  const setDate = (nextDate: string) => {
+    setLocalDate(nextDate);
+    onDateChange?.(nextDate);
+  };
   const [togglingCardAbsence, setTogglingCardAbsence] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [scanInput, setScanInput] = useState('');
@@ -160,12 +186,20 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
   const validDate = isIsoDate(date);
   const workingDay = validDate && data.workingDays.includes(weekdayOfDate(date));
   const lessons = workingDay ? classLessonsForDay(data.slots, activeClassId, weekdayOfDate(date)) : [];
+  const locale = i18n.language.startsWith('ar') ? 'ar' : 'en';
   const students = data.students
-    .filter((student) => student.classId === activeClassId)
-    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+    .filter((student) => student.deletedAt == null && student.classId === activeClassId)
+    .sort((a, b) => {
+      const lastA = (a.lastName ?? '').trim();
+      const lastB = (b.lastName ?? '').trim();
+      const byLast = lastA.localeCompare(lastB, locale, { sensitivity: 'base' });
+      if (byLast !== 0) return byLast;
+      return (a.firstName ?? '').trim().localeCompare((b.firstName ?? '').trim(), locale, { sensitivity: 'base' });
+    });
   const classStudentIds = new Set(students.map((student) => student.id));
   const records = data.studentAbsences.filter(
     (record) =>
+      record.deletedAt == null &&
       record.date === date &&
       record.status !== 'late' &&
       (record.classId === activeClassId || classStudentIds.has(record.studentId)),
@@ -184,15 +218,33 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
         ))}
       </div>
 
-      <label className="flex flex-col gap-2 text-sm font-medium text-neutral-700 sm:max-w-xs">
-        {t('absences.date')}
-        <input
-          type="date"
-          value={date}
-          onChange={(event) => setDate(event.target.value)}
-          className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-        />
-      </label>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <label className="flex flex-col gap-2 text-sm font-medium text-neutral-700 sm:min-w-[14rem]">
+          {t('absences.date')}
+          <input
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+            className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+          />
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-neutral-600 tabular-nums">
+            {t('absences.studentsCountLabel', { count: students.length })}
+          </span>
+          {canAddStudent && onAddStudent ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onAddStudent(activeClassId)}
+              icon={<UserPlus className="size-4" aria-hidden />}
+            >
+              {t('absences.addStudentButton')}
+            </Button>
+          ) : null}
+        </div>
+      </div>
 
       {/* Sync with Gate Card Entry + Reset Today's Absences (Full / Manual) */}
       <GateSyncAndResetPanel
@@ -317,6 +369,8 @@ export function StudentAbsencesView({ data, onSaved }: StudentAbsencesViewProps)
           students={students}
           records={records}
           canEdit={data.access.canEdit}
+          canAddStudent={canAddStudent}
+          onAddStudent={onAddStudent ? () => onAddStudent(activeClassId) : undefined}
           onSaved={onSaved}
         />
       ) : null}
@@ -344,10 +398,23 @@ interface ClassDayEditorProps {
   students: Student[];
   records: StudentAbsence[];
   canEdit: boolean;
+  canAddStudent?: boolean;
+  onAddStudent?: () => void;
   onSaved: () => void;
 }
 
-function ClassDayEditor({ classId, className, date, lessons, students, records, canEdit, onSaved }: ClassDayEditorProps) {
+function ClassDayEditor({
+  classId,
+  className,
+  date,
+  lessons,
+  students,
+  records,
+  canEdit,
+  canAddStudent = false,
+  onAddStudent,
+  onSaved,
+}: ClassDayEditorProps) {
   const { t } = useTranslation();
   const { user, institution } = useSession();
   const [draft, setDraft] = useState<DraftEntries>(() => toDraft(records));
@@ -437,7 +504,7 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
     }
   };
 
-  const gridTemplateColumns = `9.5rem repeat(${lessons.length}, 7rem)`;
+  const gridTemplateColumns = `11.5rem repeat(${lessons.length}, 7rem)`;
   const gridStyle: CSSProperties = { gridTemplateColumns };
   const stickyColumnClass = 'sticky z-20 bg-white ltr:left-0 rtl:right-0';
 
@@ -445,24 +512,39 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
     <div className="flex flex-col gap-3">
       {!canEdit ? <p className="rounded-2xl bg-neutral-100 p-4 text-sm text-neutral-700">{t('absences.readOnly')}</p> : null}
 
-      <div className="overflow-x-auto overscroll-x-contain rounded-2xl bg-white ring-1 ring-neutral-200 [scrollbar-width:thin]">
+      <div className="max-h-[70vh] overflow-auto overscroll-contain rounded-2xl bg-white ring-1 ring-neutral-200 [scrollbar-width:thin]">
         <div className="min-w-max">
-          <div className="sticky top-16 z-30 border-b border-neutral-300 bg-white shadow-sm">
+          <div className="sticky top-0 z-30 border-b border-neutral-300 bg-white shadow-sm">
             <div className="grid min-w-max items-stretch" style={gridStyle}>
-              <div className={`${stickyColumnClass} flex min-h-[4.75rem] flex-col justify-center border-e border-neutral-200 px-3 py-2`}>
-                <span className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">{t('reports.columns.student')}</span>
-                <span className="text-xs font-semibold text-neutral-900">{date}</span>
-                <span className="truncate text-xs text-neutral-600">{t('timetable.classLabel')}: {className}</span>
+              <div className={`${stickyColumnClass} flex min-h-[4.75rem] items-center justify-between gap-2 border-e border-neutral-200 px-3 py-2`}>
+                <div className="flex min-w-0 flex-col justify-center">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">
+                    {t('reports.columns.student')} ({students.length})
+                  </span>
+                  <span className="text-xs font-semibold text-neutral-900 tabular-nums">{date}</span>
+                  <span className="truncate text-xs text-neutral-600">{t('timetable.classLabel')}: {className}</span>
+                </div>
+                {canAddStudent && onAddStudent ? (
+                  <button
+                    type="button"
+                    onClick={onAddStudent}
+                    title={t('absences.addStudentButton')}
+                    aria-label={t('absences.addStudentButton')}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-primary-200 bg-primary-50 text-primary-700 transition hover:bg-primary-100"
+                  >
+                    <UserPlus className="size-4" aria-hidden />
+                  </button>
+                ) : null}
               </div>
               {lessons.map((lesson) => {
                 const absentCount = entries.filter((entry) => entry.period === lesson.period).length;
                 return (
                   <div key={lesson.period} className="flex min-h-[4.75rem] flex-col items-center justify-center border-e border-neutral-100 px-1 py-2 text-center">
-                    <span className="text-xs font-bold text-neutral-900">{periodStartHour(lesson.period)}</span>
+                    <span className="text-xs font-bold text-neutral-900 tabular-nums">{periodStartHour(lesson.period)}</span>
                     <span className="max-w-[6.75rem] whitespace-normal break-words text-[10px] font-medium leading-tight text-neutral-600" title={lesson.subject}>{lesson.subject}</span>
                     <span className="text-[10px] text-neutral-500">{t('absences.period', { number: lesson.period })}</span>
                     {absentCount > 0 ? (
-                      <span className="mt-0.5 rounded-full bg-danger-100 px-1.5 text-[10px] font-semibold text-danger-700">{absentCount}</span>
+                      <span className="mt-0.5 rounded-full bg-danger-100 px-1.5 text-[10px] font-semibold text-danger-700 tabular-nums">{absentCount}</span>
                     ) : null}
                   </div>
                 );
@@ -474,16 +556,27 @@ function ClassDayEditor({ classId, className, date, lessons, students, records, 
             <p className="px-4 py-6 text-sm text-neutral-600">{t('absences.noStudents')}</p>
           ) : (
             <ul className="divide-y divide-neutral-100">
-              {students.map((student) => {
+              {students.map((student, idx) => {
                 const hours = hoursByStudent.get(student.id)?.hours ?? 0;
+                const hasLeft = !isStudentActive(student, date);
                 return (
                   <li key={student.id} className="grid min-w-max items-stretch transition hover:bg-neutral-50" style={gridStyle}>
                     <div className={`${stickyColumnClass} flex min-h-[4.75rem] flex-col justify-center border-e border-neutral-200 px-3 py-2.5`}>
-                      <p className="break-words text-sm leading-snug text-neutral-900">
-                        <span className="font-bold">{student.lastName}</span>{' '}
-                        <span className="font-medium text-neutral-700">{student.firstName}</span>
-                      </p>
-                      <p className="text-[10px] text-neutral-500">{t('absences.hours', { count: hours })}</p>
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="shrink-0 text-[11px] font-bold text-neutral-400 tabular-nums">{idx + 1}.</span>
+                        <p className="break-words text-sm leading-snug text-neutral-900">
+                          <span className="font-bold">{student.lastName}</span>{' '}
+                          <span className="font-medium text-neutral-700">{student.firstName}</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[10px] text-neutral-500 tabular-nums">{t('absences.hours', { count: hours })}</p>
+                        {hasLeft ? (
+                          <span className="text-[10px] font-semibold text-neutral-500">
+                            ({t('absences.studentLeftBadge')})
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     {lessons.map((lesson) => {
                       const entry = draft.get(draftKey(student.id, lesson.period));

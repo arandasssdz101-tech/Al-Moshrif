@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { emitAppDataChanged, subscribeAppDataChanged } from './dataEvents';
-import { planGateDateReset, summarizeGateDateForReset } from './entryReset';
+import {
+  countGateEntriesBySession,
+  planGateDateReset,
+  summarizeGateDateForReset,
+} from './entryReset';
 
 describe('entryReset helpers', () => {
   const DATE = '2026-11-23';
@@ -61,6 +65,34 @@ describe('entryReset helpers', () => {
   it('reports hasAnythingToReset=false when date has no entries, gate absences, or closure state', () => {
     const summary = summarizeGateDateForReset('2026-11-20', entries, absences, null);
     expect(summary.hasAnythingToReset).toBe(false);
+  });
+
+  it('scopes reset summary and plan by morning vs evening session', () => {
+    const twoShiftEntries = [
+      { id: 'm1', date: DATE, time: '07:55:00', session: 'morning' as const, result: 'accepted' as const, deletedAt: null },
+      { id: 'e1', date: DATE, time: '13:02:00', session: 'evening' as const, result: 'accepted' as const, deletedAt: null },
+      { id: 'e2', date: DATE, time: '13:10:00', session: 'evening' as const, result: 'duplicate' as const, deletedAt: null },
+    ];
+    const twoShiftAbsences = [
+      { id: 'am', date: DATE, period: 1, source: 'gate' as const, deletedAt: null },
+      { id: 'ae', date: DATE, period: 5, source: 'gate' as const, deletedAt: null },
+    ];
+
+    expect(countGateEntriesBySession(DATE, twoShiftEntries)).toEqual({
+      morning: 1,
+      evening: 2,
+      total: 3,
+    });
+
+    const eveningSummary = summarizeGateDateForReset(DATE, twoShiftEntries, twoShiftAbsences, closure, 'evening');
+    expect(eveningSummary.entriesCount).toBe(2);
+    expect(eveningSummary.acceptedCount).toBe(1);
+    expect(eveningSummary.gateAbsencesCount).toBe(1);
+
+    const eveningPlan = planGateDateReset(DATE, twoShiftEntries, twoShiftAbsences, closure, { session: 'evening' });
+    expect(eveningPlan.entryIdsToDelete).toEqual(['e1', 'e2']);
+    expect(eveningPlan.gateAbsenceIdsToDelete).toEqual(['ae']);
+    expect(eveningPlan.shouldResetClosure).toBe(true);
   });
 });
 

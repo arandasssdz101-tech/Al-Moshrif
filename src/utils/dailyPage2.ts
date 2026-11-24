@@ -68,6 +68,7 @@ export interface Page2Input {
   teacherNotes: Record<string, string>;
   canteenEntries: CanteenEntry[];
   canteenTrackingStart: string | null;
+  canteenEnteredCount?: number | null;
 }
 
 export interface CanteenRender {
@@ -75,7 +76,7 @@ export interface CanteenRender {
   present: number;
   absent: number;
   absentNames: string[];
-  source: 'scans' | 'calculated' | 'beforeTracking';
+  source: 'manual' | 'scans' | 'calculated' | 'beforeTracking';
 }
 
 export interface SummaryRender {
@@ -103,7 +104,7 @@ function scannedCanteenRender(
   nameWithClass: (id: string) => string,
 ): CanteenRender {
   const halfBoarders = input.students.filter(
-    (student) => student.deletedAt === null && student.boardingStatus === 'half-boarder' && isEnrolledOn(student, input.date),
+    (student) => student.deletedAt == null && student.boardingStatus === 'half-boarder' && isEnrolledOn(student, input.date),
   );
   const acceptedIds = new Set(
     scans.filter((entry) => entry.result === 'accepted' && entry.studentId !== null).map((entry) => entry.studentId),
@@ -177,23 +178,35 @@ export function computePage2(input: Page2Input): Page2Computed {
   const usedPeriods = teacherLines.flatMap((line) => line.marks);
 
   const canteen = canteenReport({
-    students: input.students,
+    students: activeStudents,
     date: input.date,
     totalsByStudent,
     lessonCountByClass,
   });
-  const studentById = new Map(input.students.map((student) => [student.id, student]));
+  const studentById = new Map(activeStudents.map((student) => [student.id, student]));
   const nameWithClass = (id: string) => {
     const student = studentById.get(id);
     return student ? `${student.firstName} ${student.lastName} (${classNameById.get(student.classId) ?? ''})` : '';
   };
-  const scans = input.canteenEntries.filter((entry) => entry.deletedAt === null && entry.date === input.date);
+  const scans = input.canteenEntries.filter((entry) => entry.deletedAt == null && entry.date === input.date);
   const beforeTracking = input.canteenTrackingStart !== null && input.canteenTrackingStart !== '' && input.date < input.canteenTrackingStart;
-  const halfBoarderIds = canteen.absentHalfBoarderIds.length > 0 ? canteen.absentHalfBoarderIds : input.students
-    .filter((student) => student.deletedAt === null && student.boardingStatus === 'half-boarder' && isEnrolledOn(student, input.date))
+  const halfBoarderIds = canteen.absentHalfBoarderIds.length > 0 ? canteen.absentHalfBoarderIds : activeStudents
+    .filter((student) => student.boardingStatus === 'half-boarder' && isEnrolledOn(student, input.date))
     .map((student) => student.id);
-  const canteenRender: CanteenRender =
-    beforeTracking
+  const hasManualEntered =
+    input.canteenEnteredCount !== null &&
+    input.canteenEnteredCount !== undefined &&
+    Number.isFinite(input.canteenEnteredCount);
+  const manualEntered = hasManualEntered ? Math.max(0, Math.round(input.canteenEnteredCount!)) : 0;
+  const canteenRender: CanteenRender = hasManualEntered
+    ? {
+        halfBoarders: canteen.halfBoarderCount,
+        present: manualEntered,
+        absent: Math.max(0, canteen.halfBoarderCount - manualEntered),
+        absentNames: canteen.absentHalfBoarderIds.map(nameWithClass),
+        source: 'manual',
+      }
+    : beforeTracking
       ? {
           halfBoarders: canteen.halfBoarderCount,
           present: canteen.halfBoarderCount - canteen.absentHalfBoarderIds.length,
@@ -202,7 +215,7 @@ export function computePage2(input: Page2Input): Page2Computed {
           source: 'beforeTracking',
         }
     : scans.length > 0
-      ? scannedCanteenRender(input, scans, nameWithClass)
+      ? scannedCanteenRender({ ...input, students: activeStudents }, scans, nameWithClass)
       : {
           halfBoarders: canteen.halfBoarderCount,
           present: 0,

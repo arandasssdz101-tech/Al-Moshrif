@@ -1,4 +1,6 @@
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import { DomainError } from '@/utils/errors';
+import { STUDENT_CARD_ISSUANCE_VERSION } from '@/utils/studentQr';
 import { db } from './database';
 import type {
   AppNotification,
@@ -34,6 +36,7 @@ export interface SerializedLibraryFile {
 interface BackupFile {
   format: typeof BACKUP_FORMAT;
   version: typeof BACKUP_VERSION;
+  cardVersion?: number;
   exportedAt: string;
   institutions: Institution[];
   users: User[];
@@ -55,6 +58,7 @@ interface BackupFile {
 }
 
 export interface BackupData {
+  cardVersion?: number;
   institutions: Institution[];
   users: User[];
   classes: SchoolClass[];
@@ -102,6 +106,7 @@ export async function exportBackup(options: ExportBackupOptions = {}): Promise<s
   const file: BackupFile = {
     format: BACKUP_FORMAT,
     version: BACKUP_VERSION,
+    cardVersion: STUDENT_CARD_ISSUANCE_VERSION,
     exportedAt: new Date().toISOString(),
     institutions: await db.institutions.toArray(),
     users: await db.users.toArray(),
@@ -232,6 +237,7 @@ export function parseBackup(text: string): BackupData | null {
   }
 
   return {
+    cardVersion: STUDENT_CARD_ISSUANCE_VERSION,
     institutions: file.institutions as Institution[],
     users: file.users as User[],
     classes: classes as SchoolClass[],
@@ -382,5 +388,8 @@ export async function replaceAllData(data: BackupData): Promise<void> {
         await db.libraryFiles.bulkPut(restoredFiles);
       }
     }
+  });
+  emitAppDataChanged(['absences', 'entries', 'sync', 'students', 'timetable'], {
+    reason: 'backup-restore',
   });
 }

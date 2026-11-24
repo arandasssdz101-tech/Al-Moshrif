@@ -46,7 +46,7 @@ export async function assertUsernameAvailable(usernameKey: string): Promise<void
   const taken = await db.users
     .where('usernameKey')
     .equals(usernameKey)
-    .filter((user) => user.deletedAt === null)
+    .filter((user) => user.deletedAt == null)
     .count();
   if (taken > 0) {
     throw new DomainError('auth.errors.usernameTaken');
@@ -55,7 +55,7 @@ export async function assertUsernameAvailable(usernameKey: string): Promise<void
 
 export async function getActiveUser(userId: string): Promise<User> {
   const user = await db.users.get(userId);
-  if (!user || user.deletedAt !== null) {
+  if (!user || user.deletedAt != null) {
     throw new DomainError('errors.notFound');
   }
   return user;
@@ -97,7 +97,7 @@ export async function updateOwnDisplayName(userId: string, rawName: string): Pro
 export async function listSupervisors(institutionId: string): Promise<User[]> {
   const users = await db.users.where('institutionId').equals(institutionId).toArray();
   return users
-    .filter((user) => user.role === 'supervisor' && user.deletedAt === null)
+    .filter((user) => user.role === 'supervisor' && user.deletedAt == null)
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 

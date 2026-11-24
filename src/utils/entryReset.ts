@@ -1,4 +1,7 @@
-import type { EntryDayClosure, GateEntry, StudentAbsence } from '@/db/types';
+import type { EntryDayClosure, EntrySession, GateEntry, StudentAbsence } from '@/db/types';
+import { isPeriodInSession, resolveEntrySession } from '@/utils/entry';
+
+export type EntryResetSessionScope = 'all' | EntrySession;
 
 export interface GateDateResetSummary {
   date: string;
@@ -21,19 +24,65 @@ export interface GateDateResetPlan {
 export interface GateDateResetOptions {
   includeGateAbsences?: boolean;
   resetClosure?: boolean;
+  session?: EntryResetSessionScope;
+  eveningStartTime?: string;
+}
+
+function matchesEntrySession(
+  entry: Pick<GateEntry, 'date' | 'deletedAt'> & { time?: string; session?: EntrySession },
+  date: string,
+  session: EntryResetSessionScope,
+  eveningStartTime?: string,
+): boolean {
+  if (entry.deletedAt !== null || entry.date !== date) return false;
+  if (session === 'all') return true;
+  if (entry.session) return entry.session === session;
+  if (entry.time) return resolveEntrySession({ time: entry.time, session: entry.session }, eveningStartTime) === session;
+  return session === 'morning';
+}
+
+function matchesAbsenceSession(
+  absence: Pick<StudentAbsence, 'date' | 'deletedAt'> & { period?: number },
+  date: string,
+  session: EntryResetSessionScope,
+  eveningStartTime?: string,
+): boolean {
+  if (absence.deletedAt !== null || absence.date !== date) return false;
+  if (session === 'all') return true;
+  if (typeof absence.period !== 'number') return true;
+  return isPeriodInSession(absence.period, session, eveningStartTime);
+}
+
+export function countGateEntriesBySession(
+  date: string,
+  entries: (Pick<GateEntry, 'date' | 'deletedAt'> & { time?: string; session?: EntrySession })[],
+  eveningStartTime?: string,
+): { morning: number; evening: number; total: number } {
+  let morning = 0;
+  let evening = 0;
+  for (const item of entries) {
+    if (item.deletedAt !== null || item.date !== date) continue;
+    const resolved =
+      item.session ?? (item.time ? resolveEntrySession({ time: item.time, session: item.session }, eveningStartTime) : 'morning');
+    if (resolved === 'evening') evening += 1;
+    else morning += 1;
+  }
+  return { morning, evening, total: morning + evening };
 }
 
 export function summarizeGateDateForReset(
   date: string,
-  entries: Pick<GateEntry, 'id' | 'date' | 'result' | 'deletedAt'>[],
-  absences: Pick<StudentAbsence, 'id' | 'date' | 'source' | 'deletedAt'>[],
+  entries: (Pick<GateEntry, 'id' | 'date' | 'result' | 'deletedAt'> & { time?: string; session?: EntrySession })[],
+  absences: (Pick<StudentAbsence, 'id' | 'date' | 'source' | 'deletedAt'> & { period?: number })[],
   closure: Pick<EntryDayClosure, 'closed' | 'autoAbsencesSyncedAt' | 'createdAbsenceIds'> | null,
+  session: EntryResetSessionScope = 'all',
+  eveningStartTime?: string,
 ): GateDateResetSummary {
-  const activeEntries = entries.filter((item) => item.deletedAt === null && item.date === date);
+  const activeEntries = entries.filter((item) => matchesEntrySession(item, date, session, eveningStartTime));
   const acceptedCount = activeEntries.filter((item) => item.result === 'accepted').length;
   const rejectedCount = activeEntries.length - acceptedCount;
 
-  const activeAbsences = absences.filter((item) => item.deletedAt === null && item.date === date);
+  const activeAbsences = absences.filter((item) => matchesAbsenceSession(item, date, session, eveningStartTime));
   const gateAbsencesCount = activeAbsences.filter((item) => item.source === 'gate').length;
   const manualAbsencesCount = activeAbsences.length - gateAbsencesCount;
 
@@ -56,21 +105,23 @@ export function summarizeGateDateForReset(
 
 export function planGateDateReset(
   date: string,
-  entries: Pick<GateEntry, 'id' | 'date' | 'deletedAt'>[],
-  absences: Pick<StudentAbsence, 'id' | 'date' | 'source' | 'deletedAt'>[],
+  entries: (Pick<GateEntry, 'id' | 'date' | 'deletedAt'> & { time?: string; session?: EntrySession })[],
+  absences: (Pick<StudentAbsence, 'id' | 'date' | 'source' | 'deletedAt'> & { period?: number })[],
   closure: Pick<EntryDayClosure, 'closed' | 'autoAbsencesSyncedAt' | 'createdAbsenceIds'> | null,
   options?: GateDateResetOptions,
 ): GateDateResetPlan {
   const includeGateAbsences = options?.includeGateAbsences !== false;
   const resetClosure = options?.resetClosure !== false;
+  const session = options?.session ?? 'all';
+  const eveningStartTime = options?.eveningStartTime;
 
   const entryIdsToDelete = entries
-    .filter((item) => item.deletedAt === null && item.date === date)
+    .filter((item) => matchesEntrySession(item, date, session, eveningStartTime))
     .map((item) => item.id);
 
   const gateAbsenceIdsToDelete = includeGateAbsences
     ? absences
-        .filter((item) => item.deletedAt === null && item.date === date && item.source === 'gate')
+        .filter((item) => item.source === 'gate' && matchesAbsenceSession(item, date, session, eveningStartTime))
         .map((item) => item.id)
     : [];
 
@@ -84,3 +135,4 @@ export function planGateDateReset(
     shouldResetClosure: resetClosure && hasClosureState,
   };
 }
+

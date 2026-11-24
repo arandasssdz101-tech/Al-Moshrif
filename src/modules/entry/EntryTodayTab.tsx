@@ -3,7 +3,8 @@ import { BarChart2, Clock, UserCheck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import type { GateEntry, Student } from '@/db/types';
+import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import type { EntrySession, GateEntry, Student } from '@/db/types';
 import {
   ensureGateAutoAbsencesStarted,
   recordGateEntry,
@@ -16,6 +17,7 @@ import {
   computeClassEntryBreakdown,
   computeLateStatus,
   computeTenMinuteBuckets,
+  defaultEntrySession,
   getEntrySettings,
   nowTimeHms,
   resolveExpectedStartTime,
@@ -44,18 +46,31 @@ export function EntryTodayTab({
   const { t } = useTranslation();
   const { access, institution, classes, students, slots } = workspace;
   const settings = useMemo(() => getEntrySettings(institution), [institution]);
+  const [sessionFilter, setSessionFilter] = useState<'all' | EntrySession>('all');
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
 
   const isToday = date === today;
   const canMark = access.canEdit && isToday;
+  const scopedSession = sessionFilter === 'all' ? undefined : sessionFilter;
 
   const breakdown = useMemo(
-    () => computeClassEntryBreakdown(classes, students, entries, date),
-    [classes, students, entries, date],
+    () =>
+      computeClassEntryBreakdown(
+        classes,
+        students,
+        entries,
+        date,
+        scopedSession,
+        settings.eveningStartTime,
+      ),
+    [classes, students, entries, date, scopedSession, settings.eveningStartTime],
   );
 
-  const acceptedMap = useMemo(() => acceptedEntryByStudent(entries, date), [entries, date]);
+  const acceptedMap = useMemo(
+    () => acceptedEntryByStudent(entries, date, scopedSession, settings.eveningStartTime),
+    [entries, date, scopedSession, settings.eveningStartTime],
+  );
   const classById = useMemo(() => new Map(classes.map((item) => [item.id, item])), [classes]);
   const studentById = useMemo(() => new Map(students.map((item) => [item.id, item])), [students]);
 
@@ -88,7 +103,10 @@ export function EntryTodayTab({
       });
   }, [acceptedMap, studentById, classById]);
 
-  const buckets = useMemo(() => computeTenMinuteBuckets(entries, date), [entries, date]);
+  const buckets = useMemo(
+    () => computeTenMinuteBuckets(entries, date, scopedSession, settings.eveningStartTime),
+    [entries, date, scopedSession, settings.eveningStartTime],
+  );
   const maxBucketCount = useMemo(
     () => Math.max(1, ...buckets.map((item) => item.count)),
     [buckets],
@@ -98,21 +116,40 @@ export function EntryTodayTab({
     if (!canMark) return;
     setMarkingId(student.id);
     try {
+      const targetSession =
+        sessionFilter === 'all'
+          ? defaultEntrySession(new Date(), settings.eveningStartTime)
+          : sessionFilter;
       const time = nowTimeHms();
-      const expectedStart = resolveExpectedStartTime(student.classId, date, slots, settings);
+      const expectedStart = resolveExpectedStartTime(
+        student.classId,
+        date,
+        slots,
+        settings,
+        targetSession,
+      );
       const { late, minutesLate } = computeLateStatus(time, expectedStart, settings.lateAfterMinutes);
       await recordGateEntry(institution.id, actorId, {
         studentId: student.id,
         scannedCode: student.cardCode?.trim() || student.id,
         date,
         time,
+        session: targetSession,
         result: 'accepted',
         late,
         minutesLate,
         source: 'manual',
       });
-      await ensureGateAutoAbsencesStarted(institution.id, actorId, date);
-      await syncStudentGateAbsenceOnAcceptedScan(institution.id, actorId, student, date, time, late);
+      await ensureGateAutoAbsencesStarted(institution.id, actorId, date, targetSession);
+      await syncStudentGateAbsenceOnAcceptedScan(
+        institution.id,
+        actorId,
+        student,
+        date,
+        time,
+        late,
+        targetSession,
+      );
       await onRefresh();
     } finally {
       setMarkingId(null);
@@ -123,31 +160,43 @@ export function EntryTodayTab({
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Date picker */}
-      <div className="flex flex-wrap items-end justify-between gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
-        <label className="flex flex-col gap-1.5 text-sm font-medium text-neutral-700">
-          {t('entry.today.selectDate')}
-          <input
-            type="date"
-            value={date}
-            max={today}
-            onChange={(event) => {
-              if (event.target.value) onDateChange(event.target.value);
-            }}
-            className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
-          />
-        </label>
+      {/* Date & Period picker */}
+      <div className="flex flex-col gap-3 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <label className="flex flex-col gap-1.5 text-sm font-medium text-neutral-700">
+            {t('entry.today.selectDate')}
+            <input
+              type="date"
+              value={date}
+              max={today}
+              onChange={(event) => {
+                if (event.target.value) onDateChange(event.target.value);
+              }}
+              className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+            />
+          </label>
 
-        {!isToday ? (
-          <div className="flex items-center gap-2">
-            <span className="rounded-xl bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-600">
-              {t('entry.today.readOnlyPast')}
-            </span>
-            <Button type="button" variant="secondary" onClick={() => onDateChange(today)}>
-              {t('entry.today.backToToday')}
-            </Button>
-          </div>
-        ) : null}
+          {!isToday ? (
+            <div className="flex items-center gap-2">
+              <span className="rounded-xl bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-600">
+                {t('entry.today.readOnlyPast')}
+              </span>
+              <Button type="button" variant="secondary" onClick={() => onDateChange(today)}>
+                {t('entry.today.backToToday')}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+
+        <SegmentedControl<'all' | EntrySession>
+          options={[
+            { id: 'all', label: t('entry.sessions.all') },
+            { id: 'morning', label: t('entry.sessions.morning') },
+            { id: 'evening', label: `${t('entry.sessions.evening')} (${settings.eveningStartTime})` },
+          ]}
+          value={sessionFilter}
+          onChange={setSessionFilter}
+        />
       </div>
 
       {/* Per-class breakdown table with level subtotals and total row */}

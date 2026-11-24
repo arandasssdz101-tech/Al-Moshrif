@@ -1,3 +1,4 @@
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import { DomainError } from '@/utils/errors';
 import { studentDayAbsences } from '@/utils/dailyPage1';
 import { entryKey } from '@/utils/canteenPeriod';
@@ -20,14 +21,18 @@ export interface CanteenScanInput {
 export async function listCanteenStudents(institutionId: string): Promise<Student[]> {
   const students = await db.students.where('institutionId').equals(institutionId).toArray();
   return students
-    .filter((student) => student.deletedAt === null)
-    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+    .filter((student) => student.deletedAt == null)
+    .sort(
+      (a, b) =>
+        (a.lastName ?? '').localeCompare(b.lastName ?? '') ||
+        (a.firstName ?? '').localeCompare(b.firstName ?? ''),
+    );
 }
 
 export async function listCanteenEntries(institutionId: string, date: string): Promise<CanteenEntry[]> {
   const entries = await db.canteenEntries.where('institutionId').equals(institutionId).toArray();
   return entries
-    .filter((entry) => entry.deletedAt === null && entry.date === date)
+    .filter((entry) => entry.deletedAt == null && entry.date === date)
     .sort((a, b) => b.time.localeCompare(a.time));
 }
 
@@ -56,7 +61,7 @@ export async function loadWholeDayAbsentStudentIds(
 export async function listCanteenEntriesForDates(institutionId: string, dates: string[]): Promise<CanteenEntry[]> {
   const wanted = new Set(dates);
   const entries = await db.canteenEntries.where('institutionId').equals(institutionId).toArray();
-  return entries.filter((entry) => entry.deletedAt === null && wanted.has(entry.date));
+  return entries.filter((entry) => entry.deletedAt == null && wanted.has(entry.date));
 }
 
 export async function loadWholeDayAbsenceKeys(
@@ -85,6 +90,7 @@ export async function importCanteenEntries(institutionId: string, incoming: Cant
   const scoped = incoming.map((entry) => ({ ...entry, institutionId }));
   const plan = planCanteenMerge(existing, scoped, new Date().toISOString());
   await db.canteenEntries.bulkPut(plan);
+  emitAppDataChanged(['canteen'], { reason: 'import-canteen-entries' });
   return plan.length;
 }
 
@@ -102,6 +108,7 @@ export async function recordCanteenScan(institutionId: string, input: CanteenSca
     supervisorId: actorId,
   };
   await db.canteenEntries.add(record);
+  emitAppDataChanged(['canteen'], { date: input.date, reason: 'record-canteen-scan' });
   return record;
 }
 
@@ -109,6 +116,7 @@ export async function voidCanteenEntry(entryId: string, actorId: string): Promis
   const access = await getModuleAccess(actorId, 'canteen');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
   const entry = await db.canteenEntries.get(entryId);
-  if (!entry || entry.deletedAt !== null) throw new DomainError('errors.notFound');
+  if (!entry || entry.deletedAt != null) throw new DomainError('errors.notFound');
   await db.canteenEntries.put({ ...entry, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
+  emitAppDataChanged(['canteen'], { date: entry.date, reason: 'void-canteen-entry' });
 }

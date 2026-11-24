@@ -18,6 +18,7 @@ import {
   type SupervisorBackupPackage,
 } from '@/utils/supervisorMerge';
 import { emitAppDataChanged } from '@/utils/dataEvents';
+import { STUDENT_CARD_ISSUANCE_VERSION } from '@/utils/studentQr';
 import { db } from './database';
 import { touchFields } from './records';
 import type { AppNotification, Room } from './types';
@@ -109,6 +110,7 @@ export async function exportSupervisorBackupPackage(
   const pkg: SupervisorBackupPackage = {
     format: SUPERVISOR_BACKUP_FORMAT,
     version: SUPERVISOR_BACKUP_VERSION,
+    cardVersion: STUDENT_CARD_ISSUANCE_VERSION,
     exportedAt: now.toISOString(),
     institutionId,
     institutionName: institution?.name ?? '',
@@ -365,6 +367,7 @@ export async function exportConsolidatedInstitutionPackage(
   const pkg: ConsolidatedInstitutionPackage = {
     format: CONSOLIDATED_PACKAGE_FORMAT,
     version: SUPERVISOR_BACKUP_VERSION,
+    cardVersion: STUDENT_CARD_ISSUANCE_VERSION,
     exportedAt: now.toISOString(),
     institutionId,
     institutionName: institution?.name ?? '',
@@ -475,8 +478,17 @@ export async function importConsolidatedInstitutionPackage(
       const mEntries = mergeRecordsByTimestamp(entries, [pkg.records.entries], institutionId);
       const mCanteen = mergeRecordsByTimestamp(canteenEntries, [pkg.records.canteenEntries], institutionId);
 
+      const existingStudentsById = new Map(students.map((item) => [item.id, item]));
+      const preservedStudentPuts = mStudents.toPut.map((incomingStudent) => {
+        const prev = existingStudentsById.get(incomingStudent.id);
+        const preservedCode = incomingStudent.cardCode?.trim() || prev?.cardCode?.trim() || null;
+        return preservedCode !== (incomingStudent.cardCode ?? null)
+          ? { ...incomingStudent, cardCode: preservedCode }
+          : incomingStudent;
+      });
+
       if (mClasses.toPut.length) await db.classes.bulkPut(mClasses.toPut);
-      if (mStudents.toPut.length) await db.students.bulkPut(mStudents.toPut);
+      if (preservedStudentPuts.length) await db.students.bulkPut(preservedStudentPuts);
       if (mTeachers.toPut.length) await db.teachers.bulkPut(mTeachers.toPut);
       if (mRooms.toPut.length) await db.rooms.bulkPut(mRooms.toPut);
       if (mSlots.toPut.length) await db.timetableSlots.bulkPut(mSlots.toPut);

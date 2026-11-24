@@ -136,7 +136,7 @@ export function GateSyncAndResetPanel({
     if (!validDate) return 0;
     return new Set(
       data.studentAbsences
-        .filter((record) => record.deletedAt === null && record.date === date && record.status !== 'late')
+        .filter((record) => record.deletedAt == null && record.date === date && record.status !== 'late')
         .map((record) => record.studentId),
     ).size;
   }, [data.studentAbsences, date, validDate]);

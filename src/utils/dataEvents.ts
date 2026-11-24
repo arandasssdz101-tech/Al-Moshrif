@@ -1,4 +1,4 @@
-export type AppDataDomain = 'absences' | 'entries' | 'sync' | 'students' | 'timetable';
+export type AppDataDomain = 'absences' | 'entries' | 'sync' | 'students' | 'timetable' | 'canteen' | 'dailyReports';
 
 export interface AppDataChangedEvent {
   domains: AppDataDomain[];

@@ -1,6 +1,7 @@
 import type {
   CanteenMatchField,
   EntryResult,
+  EntrySession,
   GateEntry,
   Institution,
   SchoolClass,
@@ -8,11 +9,12 @@ import type {
 } from '@/db/types';
 import { isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
 import { classLessonsForDay, weekdayOfDate, type LessonSlot } from '@/utils/absences';
-import { PERIODS } from '@/utils/schedule';
+import { LUNCH_BREAK, PERIODS } from '@/utils/schedule';
 import { matchStudentFromScan, normalizeScannedCode } from '@/utils/studentQr';
 
 export interface EntrySettings {
   startTime: string;
+  eveningStartTime: string;
   lateAfterMinutes: number;
   useFirstTimetableLesson: boolean;
   soundEnabled: boolean;
@@ -23,6 +25,7 @@ export interface EntrySettings {
 
 export const DEFAULT_ENTRY_SETTINGS: EntrySettings = {
   startTime: '08:00',
+  eveningStartTime: '13:00',
   lateAfterMinutes: 10,
   useFirstTimetableLesson: false,
   soundEnabled: true,
@@ -39,6 +42,7 @@ export function getEntrySettings(
     Pick<
       Institution,
       | 'entryStartTime'
+      | 'entryEveningStartTime'
       | 'entryLateAfterMinutes'
       | 'entryUseFirstTimetableLesson'
       | 'entrySoundEnabled'
@@ -52,6 +56,10 @@ export function getEntrySettings(
     institution.entryStartTime && TIME_PATTERN.test(institution.entryStartTime.trim())
       ? institution.entryStartTime.trim().slice(0, 5)
       : DEFAULT_ENTRY_SETTINGS.startTime;
+  const eveningStartTime =
+    institution.entryEveningStartTime && TIME_PATTERN.test(institution.entryEveningStartTime.trim())
+      ? institution.entryEveningStartTime.trim().slice(0, 5)
+      : DEFAULT_ENTRY_SETTINGS.eveningStartTime;
   const lateAfterMinutes =
     typeof institution.entryLateAfterMinutes === 'number' && Number.isFinite(institution.entryLateAfterMinutes)
       ? Math.max(0, Math.min(240, Math.floor(institution.entryLateAfterMinutes)))
@@ -63,6 +71,7 @@ export function getEntrySettings(
 
   return {
     startTime,
+    eveningStartTime,
     lateAfterMinutes,
     useFirstTimetableLesson: institution.entryUseFirstTimetableLesson === true,
     soundEnabled: institution.entrySoundEnabled !== false,
@@ -105,19 +114,70 @@ export function parseTimeToMinutes(time: string): number | null {
   return hours * 60 + minutes;
 }
 
+export function eveningCutoffMinutes(eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime): number {
+  const startMins = parseTimeToMinutes(eveningStartTime) ?? 13 * 60;
+  // Gate opens up to 30 minutes before the official evening start time (e.g. 12:30 for 13:00), never before 12:00.
+  return Math.max(12 * 60, startMins - 30);
+}
+
+export function defaultEntrySession(
+  now: Date = new Date(),
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
+): EntrySession {
+  const currentMins = now.getHours() * 60 + now.getMinutes();
+  return currentMins >= eveningCutoffMinutes(eveningStartTime) ? 'evening' : 'morning';
+}
+
+export function resolveEntrySession(
+  entry: Pick<GateEntry, 'time' | 'session'>,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
+): EntrySession {
+  if (entry.session === 'morning' || entry.session === 'evening') {
+    return entry.session;
+  }
+  const mins = parseTimeToMinutes(entry.time);
+  if (mins !== null && mins >= eveningCutoffMinutes(eveningStartTime)) {
+    return 'evening';
+  }
+  return 'morning';
+}
+
+export function isPeriodInSession(
+  periodNumber: number,
+  session: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
+): boolean {
+  const periodMeta = PERIODS.find((item) => item.number === periodNumber);
+  if (!periodMeta) return true;
+  const periodStartMins = parseTimeToMinutes(periodMeta.start);
+  if (periodStartMins === null) return true;
+  const lunchEndMins = parseTimeToMinutes(LUNCH_BREAK.end) ?? 13 * 60;
+  const configuredEveningMins = parseTimeToMinutes(eveningStartTime) ?? lunchEndMins;
+  const boundaryMins = Math.min(lunchEndMins, configuredEveningMins);
+  return session === 'evening' ? periodStartMins >= boundaryMins : periodStartMins < boundaryMins;
+}
+
 export function resolveExpectedStartTime(
   classId: string,
   date: string,
   slots: LessonSlot[],
-  settings: Pick<EntrySettings, 'startTime' | 'useFirstTimetableLesson'>,
+  settings: Pick<EntrySettings, 'startTime' | 'useFirstTimetableLesson'> & { eveningStartTime?: string },
+  session: EntrySession = 'morning',
 ): string {
-  if (!settings.useFirstTimetableLesson) return settings.startTime;
+  const baseStart =
+    session === 'evening'
+      ? settings.eveningStartTime || DEFAULT_ENTRY_SETTINGS.eveningStartTime
+      : settings.startTime;
+
+  if (!settings.useFirstTimetableLesson) return baseStart;
   const day = weekdayOfDate(date);
-  const lessons = classLessonsForDay(slots, classId, day);
-  if (lessons.length === 0) return settings.startTime;
+  const lessons = classLessonsForDay(slots, classId, day).filter((lesson) =>
+    isPeriodInSession(lesson.period, session, settings.eveningStartTime),
+  );
+  if (lessons.length === 0) return baseStart;
   const firstPeriodNumber = lessons[0].period;
   const periodMeta = PERIODS.find((item) => item.number === firstPeriodNumber);
-  return periodMeta ? periodMeta.start : settings.startTime;
+  return periodMeta ? periodMeta.start : baseStart;
 }
 
 export function computeLateStatus(
@@ -139,6 +199,7 @@ export interface GateScanDecision {
   result: EntryResult;
   student: Student | null;
   scannedCode: string;
+  session: EntrySession;
   late: boolean;
   minutesLate: number;
   existingTime: string | null;
@@ -148,29 +209,58 @@ export interface DecideGateScanInput {
   rawCode: string;
   date: string;
   time: string;
+  session?: EntrySession;
   students: Student[];
-  entriesForDate: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'deletedAt'>[];
+  entriesForDate: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'session' | 'result' | 'deletedAt'>[];
   slots: LessonSlot[];
-  settings: Pick<EntrySettings, 'startTime' | 'lateAfterMinutes' | 'useFirstTimetableLesson'>;
+  settings: Pick<EntrySettings, 'startTime' | 'lateAfterMinutes' | 'useFirstTimetableLesson'> & {
+    eveningStartTime?: string;
+  };
   preferredField?: CanteenMatchField;
   convertAzertyDigits?: boolean;
 }
 
 export function decideGateScan(input: DecideGateScanInput): GateScanDecision {
+  const eveningStart = input.settings.eveningStartTime ?? DEFAULT_ENTRY_SETTINGS.eveningStartTime;
+  const session = input.session ?? resolveEntrySession({ time: input.time }, eveningStart);
   const scannedCode = normalizeScannedCode(input.rawCode, {
     convertAzertyDigits: input.convertAzertyDigits ?? true,
   });
   if (!scannedCode) {
-    return { result: 'unknown', student: null, scannedCode: '', late: false, minutesLate: 0, existingTime: null };
+    return {
+      result: 'unknown',
+      student: null,
+      scannedCode: '',
+      session,
+      late: false,
+      minutesLate: 0,
+      existingTime: null,
+    };
   }
 
   const student = matchStudentFromScan(input.students, scannedCode, input.preferredField);
   if (!student) {
-    return { result: 'unknown', student: null, scannedCode, late: false, minutesLate: 0, existingTime: null };
+    return {
+      result: 'unknown',
+      student: null,
+      scannedCode,
+      session,
+      late: false,
+      minutesLate: 0,
+      existingTime: null,
+    };
   }
 
   if (student.leaveDate !== null && student.leaveDate <= input.date) {
-    return { result: 'left', student, scannedCode, late: false, minutesLate: 0, existingTime: null };
+    return {
+      result: 'left',
+      student,
+      scannedCode,
+      session,
+      late: false,
+      minutesLate: 0,
+      existingTime: null,
+    };
   }
 
   const existingAccepted = input.entriesForDate
@@ -179,7 +269,8 @@ export function decideGateScan(input: DecideGateScanInput): GateScanDecision {
         entry.deletedAt === null &&
         entry.date === input.date &&
         entry.studentId === student.id &&
-        entry.result === 'accepted',
+        entry.result === 'accepted' &&
+        resolveEntrySession(entry, eveningStart) === session,
     )
     .sort((a, b) => a.time.localeCompare(b.time))[0];
 
@@ -188,18 +279,26 @@ export function decideGateScan(input: DecideGateScanInput): GateScanDecision {
       result: 'duplicate',
       student,
       scannedCode,
+      session,
       late: false,
       minutesLate: 0,
       existingTime: existingAccepted.time.slice(0, 5),
     };
   }
 
-  const expectedStart = resolveExpectedStartTime(student.classId, input.date, input.slots, input.settings);
+  const expectedStart = resolveExpectedStartTime(
+    student.classId,
+    input.date,
+    input.slots,
+    input.settings,
+    session,
+  );
   const { late, minutesLate } = computeLateStatus(input.time, expectedStart, input.settings.lateAfterMinutes);
   return {
     result: 'accepted',
     student,
     scannedCode,
+    session,
     late,
     minutesLate,
     existingTime: null,
@@ -229,16 +328,32 @@ export interface DailyEntryStats {
   percentage: number;
 }
 
+type EntrySummaryFields = Pick<
+  GateEntry,
+  'studentId' | 'date' | 'time' | 'session' | 'result' | 'late' | 'minutesLate' | 'deletedAt'
+>;
+
+export function filterEntriesBySession<T extends Pick<GateEntry, 'time' | 'session'>>(
+  entries: T[],
+  session?: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
+): T[] {
+  if (!session) return entries;
+  return entries.filter((entry) => resolveEntrySession(entry, eveningStartTime) === session);
+}
+
 export function acceptedEntryByStudent(
-  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[],
+  entries: EntrySummaryFields[],
   date: string,
-): Map<string, Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>> {
-  const map = new Map<
-    string,
-    Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>
-  >();
+  session?: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
+): Map<string, EntrySummaryFields> {
+  const map = new Map<string, EntrySummaryFields>();
   for (const entry of entries) {
     if (entry.deletedAt !== null || entry.date !== date || entry.result !== 'accepted' || !entry.studentId) {
+      continue;
+    }
+    if (session && resolveEntrySession(entry, eveningStartTime) !== session) {
       continue;
     }
     const prev = map.get(entry.studentId);
@@ -251,12 +366,15 @@ export function acceptedEntryByStudent(
 
 export function computeEntryStats(
   students: Pick<Student, 'id' | 'classId' | 'joinDate' | 'leaveDate' | 'deletedAt'>[],
-  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[],
+  entries: EntrySummaryFields[],
   date: string,
+  session?: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
 ): DailyEntryStats {
   const enrolledStudents = students.filter((student) => student.deletedAt === null && isEnrolledOn(student, date));
   const enrolledIds = new Set(enrolledStudents.map((student) => student.id));
-  const acceptedMap = acceptedEntryByStudent(entries, date);
+  const scopedEntries = filterEntriesBySession(entries, session, eveningStartTime);
+  const acceptedMap = acceptedEntryByStudent(scopedEntries, date, session, eveningStartTime);
 
   let entered = 0;
   let late = 0;
@@ -269,7 +387,7 @@ export function computeEntryStats(
   let duplicates = 0;
   let unknown = 0;
   let left = 0;
-  for (const entry of entries) {
+  for (const entry of scopedEntries) {
     if (entry.deletedAt !== null || entry.date !== date) continue;
     if (entry.result === 'duplicate') duplicates += 1;
     else if (entry.result === 'unknown') unknown += 1;
@@ -339,13 +457,15 @@ export function inferClassLevel(schoolClass: Pick<SchoolClass, 'name' | 'level'>
 export function computeClassEntryBreakdown(
   classes: Pick<SchoolClass, 'id' | 'name' | 'level' | 'deletedAt'>[],
   students: Pick<Student, 'id' | 'classId' | 'joinDate' | 'leaveDate' | 'deletedAt'>[],
-  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[],
+  entries: EntrySummaryFields[],
   date: string,
+  session?: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
 ): ClassEntryBreakdown {
   const activeClasses = classes
     .filter((item) => item.deletedAt === null)
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-  const acceptedMap = acceptedEntryByStudent(entries, date);
+  const acceptedMap = acceptedEntryByStudent(entries, date, session, eveningStartTime);
 
   const enrolledByClass = new Map<string, string[]>();
   for (const student of students) {
@@ -437,10 +557,12 @@ export interface TenMinuteBucket {
 }
 
 export function computeTenMinuteBuckets(
-  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[],
+  entries: EntrySummaryFields[],
   date: string,
+  session?: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
 ): TenMinuteBucket[] {
-  const accepted = Array.from(acceptedEntryByStudent(entries, date).values());
+  const accepted = Array.from(acceptedEntryByStudent(entries, date, session, eveningStartTime).values());
   const bucketMap = new Map<number, { count: number; lateCount: number }>();
 
   for (const entry of accepted) {
@@ -471,10 +593,14 @@ export function computeLateMissedPeriods(
   date: string,
   entryTime: string,
   slots: LessonSlot[],
+  session?: EntrySession,
+  eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
 ): { period: number; subject: string }[] {
   const entryMinutes = parseTimeToMinutes(entryTime);
   if (entryMinutes === null) return [];
-  const lessons = classLessonsForDay(slots, classId, weekdayOfDate(date));
+  const lessons = classLessonsForDay(slots, classId, weekdayOfDate(date)).filter((lesson) =>
+    session ? isPeriodInSession(lesson.period, session, eveningStartTime) : true,
+  );
   const missed: { period: number; subject: string }[] = [];
 
   for (const lesson of lessons) {
@@ -498,13 +624,16 @@ export interface AutoAbsencePlanItem {
 
 export function planAutoAbsencesForStart(input: {
   date: string;
+  session?: EntrySession;
+  eveningStartTime?: string;
   students: Pick<Student, 'id' | 'classId' | 'joinDate' | 'leaveDate' | 'deletedAt'>[];
   slots: LessonSlot[];
-  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[];
+  entries: EntrySummaryFields[];
   existingAbsences: { studentId: string; period: number; deletedAt: string | null }[];
   settings: Pick<EntrySettings, 'markLateMissedLessons'>;
 }): AutoAbsencePlanItem[] {
-  const acceptedMap = acceptedEntryByStudent(input.entries, input.date);
+  const eveningStart = input.eveningStartTime ?? DEFAULT_ENTRY_SETTINGS.eveningStartTime;
+  const acceptedMap = acceptedEntryByStudent(input.entries, input.date, input.session, eveningStart);
   const existingKeys = new Set(
     input.existingAbsences
       .filter((item) => item.deletedAt === null)
@@ -515,10 +644,12 @@ export function planAutoAbsencesForStart(input: {
   const getLessons = (classId: string) => {
     let cached = lessonsByClass.get(classId);
     if (!cached) {
-      cached = classLessonsForDay(input.slots, classId, day).map((lesson) => ({
-        period: lesson.period,
-        subject: lesson.subject,
-      }));
+      cached = classLessonsForDay(input.slots, classId, day)
+        .filter((lesson) => (input.session ? isPeriodInSession(lesson.period, input.session, eveningStart) : true))
+        .map((lesson) => ({
+          period: lesson.period,
+          subject: lesson.subject,
+        }));
       lessonsByClass.set(classId, cached);
     }
     return cached;
@@ -544,7 +675,14 @@ export function planAutoAbsencesForStart(input: {
         });
       }
     } else if (input.settings.markLateMissedLessons && accepted.late) {
-      const missed = computeLateMissedPeriods(student.classId, input.date, accepted.time, input.slots);
+      const missed = computeLateMissedPeriods(
+        student.classId,
+        input.date,
+        accepted.time,
+        input.slots,
+        input.session,
+        eveningStart,
+      );
       for (const lesson of missed) {
         const key = `${student.id}|${lesson.period}`;
         if (existingKeys.has(key)) continue;
@@ -573,14 +711,24 @@ export function planStudentGateAbsenceSync(input: {
   date: string;
   entryTime: string;
   late: boolean;
+  session?: EntrySession;
+  eveningStartTime?: string;
   slots: LessonSlot[];
   existingStudentAbsences: { id: string; period: number; source?: 'manual' | 'gate'; deletedAt: string | null }[];
   markLateMissedLessons: boolean;
 }): StudentGateAbsenceSyncPlan {
+  const eveningStart = input.eveningStartTime ?? DEFAULT_ENTRY_SETTINGS.eveningStartTime;
   const active = input.existingStudentAbsences.filter((item) => item.deletedAt === null);
   const missed =
     input.late && input.markLateMissedLessons
-      ? computeLateMissedPeriods(input.classId, input.date, input.entryTime, input.slots)
+      ? computeLateMissedPeriods(
+          input.classId,
+          input.date,
+          input.entryTime,
+          input.slots,
+          input.session,
+          eveningStart,
+        )
       : [];
   const keepPeriods = new Set(missed.map((item) => item.period));
 
@@ -589,7 +737,10 @@ export function planStudentGateAbsenceSync(input: {
   let hasManualAbsence = false;
 
   for (const record of active) {
-    if (record.source === 'gate' && !keepPeriods.has(record.period)) {
+    const inTargetSession = input.session
+      ? isPeriodInSession(record.period, input.session, eveningStart)
+      : true;
+    if (record.source === 'gate' && inTargetSession && !keepPeriods.has(record.period)) {
       toSoftDeleteIds.push(record.id);
     } else {
       remainingPeriods.add(record.period);
@@ -602,4 +753,5 @@ export function planStudentGateAbsenceSync(input: {
   const toAdd = missed.filter((item) => !remainingPeriods.has(item.period));
   return { toSoftDeleteIds, toAdd, hasManualAbsence };
 }
+
 

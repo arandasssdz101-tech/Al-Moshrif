@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Mail, StickyNote } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import { FormError } from '@/components/ui/StatusBlock';
 import type { AbsenceWorkspace } from '@/db/absences';
-import { loadDailyReport, saveDailyReport, type DailyReportInput } from '@/db/dailyReports';
+import { loadDailyReport, saveCanteenDailyInfo, saveDailyReport, type DailyReportInput } from '@/db/dailyReports';
 import { listCanteenEntriesForDates } from '@/db/canteen';
 import { listGateEntriesForDate } from '@/db/entries';
 import type { CanteenEntry, DailyReportRecord, GateEntry } from '@/db/types';
+import { subscribeAppDataChanged } from '@/utils/dataEvents';
 import { computeEntryStats } from '@/utils/entry';
 import { DailyPagePreview } from '@/modules/absences/DailyPagePreview';
 import { SupervisorRowsEditor, TeacherNotesEditor } from '@/modules/absences/DailyPage2Editors';
@@ -48,10 +49,10 @@ interface DailyReportViewProps {
   data: AbsenceWorkspace;
 }
 
-function inputFromRecord(record: DailyReportRecord): DailyReportInput {
+function inputFromRecord(record: DailyReportRecord, fallbackPrefix: string): DailyReportInput {
   return {
-    reportNumber: record.reportNumber,
-    schoolYear: record.schoolYear,
+    reportNumber: record.reportNumber || fallbackPrefix,
+    schoolYear: record.schoolYear || schoolYearForDate(record.date),
     parentRows: record.parentRows ?? [],
     counselorNotes: record.counselorNotes ?? '',
     directorNotes: record.directorNotes ?? '',
@@ -59,6 +60,7 @@ function inputFromRecord(record: DailyReportRecord): DailyReportInput {
     canteenNote: record.canteenNote ?? '',
     mealServed: record.mealServed ?? '',
     plannedMeal: record.plannedMeal ?? '',
+    canteenEnteredCount: record.canteenEnteredCount ?? null,
     canteenSupervisors: record.canteenSupervisors ?? [],
     supervisorRows: record.supervisorRows ?? [],
     teacherNotes: record.teacherNotes ?? {},
@@ -76,6 +78,7 @@ function defaultInput(date: string, reportNumberPrefix: string): DailyReportInpu
     canteenNote: '',
     mealServed: '',
     plannedMeal: '',
+    canteenEnteredCount: null,
     canteenSupervisors: [],
     supervisorRows: [],
     teacherNotes: {},
@@ -93,17 +96,58 @@ export function DailyReportView({ data }: DailyReportViewProps) {
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [canteenEntries, setCanteenEntries] = useState<CanteenEntry[] | null>(null);
   const [gateEntries, setGateEntries] = useState<GateEntry[]>([]);
+  const dirtyRef = useRef(false);
+  const savingLocalRef = useRef(false);
   const validDate = isIsoDate(date);
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
+  const reloadReportAndEntries = useCallback(
+    async (options?: { skipExtrasIfDirty?: boolean }) => {
+      if (!validDate) return;
+      setLoadFailed(false);
+      const [record, entries, gateRows] = await Promise.all([
+        loadDailyReport(institution.id, date),
+        listCanteenEntriesForDates(institution.id, [date]),
+        listGateEntriesForDate(institution.id, date),
+      ]);
+      if (!options?.skipExtrasIfDirty || !dirtyRef.current) {
+        setExtras(
+          record
+            ? inputFromRecord(record, institution.reportNumberPrefix ?? '')
+            : defaultInput(date, institution.reportNumberPrefix ?? ''),
+        );
+        setDirty(false);
+        setSaveState('idle');
+      }
+      setCanteenEntries(entries);
+      setGateEntries(gateRows);
+    },
+    [institution.id, institution.reportNumberPrefix, date, validDate],
+  );
 
   useEffect(() => {
     if (!validDate) return;
     let active = true;
     setExtras(null);
+    setCanteenEntries(null);
     setLoadFailed(false);
-    loadDailyReport(institution.id, date)
-      .then((record) => {
+    Promise.all([
+      loadDailyReport(institution.id, date),
+      listCanteenEntriesForDates(institution.id, [date]),
+      listGateEntriesForDate(institution.id, date),
+    ])
+      .then(([record, entries, gateRows]) => {
         if (!active) return;
-        setExtras(record ? inputFromRecord(record) : defaultInput(date, institution.reportNumberPrefix ?? ''));
+        setExtras(
+          record
+            ? inputFromRecord(record, institution.reportNumberPrefix ?? '')
+            : defaultInput(date, institution.reportNumberPrefix ?? ''),
+        );
+        setCanteenEntries(entries);
+        setGateEntries(gateRows);
         setDirty(false);
         setSaveState('idle');
       })
@@ -116,25 +160,13 @@ export function DailyReportView({ data }: DailyReportViewProps) {
   }, [institution.id, institution.reportNumberPrefix, date, validDate]);
 
   useEffect(() => {
-    if (!validDate) return;
-    let active = true;
-    setCanteenEntries(null);
-    Promise.all([
-      listCanteenEntriesForDates(institution.id, [date]),
-      listGateEntriesForDate(institution.id, date),
-    ])
-      .then(([entries, gateRows]) => {
-        if (!active) return;
-        setCanteenEntries(entries);
-        setGateEntries(gateRows);
-      })
-      .catch(() => {
-        if (active) setLoadFailed(true);
+    return subscribeAppDataChanged(['dailyReports', 'canteen', 'absences', 'entries', 'students', 'sync'], () => {
+      if (savingLocalRef.current) return;
+      void reloadReportAndEntries({ skipExtrasIfDirty: true }).catch(() => {
+        setLoadFailed(true);
       });
-    return () => {
-      active = false;
-    };
-  }, [institution.id, date, validDate]);
+    });
+  }, [reloadReportAndEntries]);
 
   const schoolDay = validDate && isSchoolDay(date, data.workingDays, new Set(data.holidayDates));
   const countRule = institution.absenceCountRule ?? 'wholeDay';
@@ -155,6 +187,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           teacherNotes: extras.teacherNotes,
           canteenEntries,
           canteenTrackingStart: institution.canteenTrackingStart ?? null,
+          canteenEnteredCount: extras.canteenEnteredCount ?? null,
         })
       : null;
 
@@ -230,20 +263,60 @@ export function DailyReportView({ data }: DailyReportViewProps) {
 
   const pages = reportRender ? buildDailyReportHtml(reportRender) : [];
 
-  const patchExtras = (patch: Partial<DailyReportInput>) => {
-    setExtras((previous) => (previous ? { ...previous, ...patch } : previous));
+  const applyAndSave = async (
+    patch: Partial<DailyReportInput>,
+    options?: { canteenOnly?: boolean },
+  ) => {
+    if (!extras) return;
+    const nextExtras: DailyReportInput = { ...extras, ...patch };
+    setExtras(nextExtras);
+    dirtyRef.current = true;
     setDirty(true);
     setSaveState('idle');
+    savingLocalRef.current = true;
+    try {
+      if (user.role === 'head') {
+        await saveDailyReport(institution.id, date, nextExtras, user.id);
+      } else if (options?.canteenOnly) {
+        await saveCanteenDailyInfo(
+          institution.id,
+          date,
+          {
+            plannedMeal: nextExtras.plannedMeal,
+            mealServed: nextExtras.mealServed,
+            canteenNote: nextExtras.canteenNote,
+            canteenEnteredCount: nextExtras.canteenEnteredCount ?? null,
+            canteenSupervisors: nextExtras.canteenSupervisors,
+          },
+          user.id,
+        );
+      } else {
+        await saveDailyReport(institution.id, date, nextExtras, user.id);
+      }
+      dirtyRef.current = false;
+      setDirty(false);
+      setSaveState('saved');
+      setEditing(null);
+    } catch (cause) {
+      setSaveState('failed');
+      throw cause;
+    } finally {
+      savingLocalRef.current = false;
+    }
   };
 
   const handleSave = async () => {
     if (!extras) return;
+    savingLocalRef.current = true;
     try {
       await saveDailyReport(institution.id, date, extras, user.id);
+      dirtyRef.current = false;
       setDirty(false);
       setSaveState('saved');
     } catch {
       setSaveState('failed');
+    } finally {
+      savingLocalRef.current = false;
     }
   };
 
@@ -323,8 +396,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           counselorNotes={extras.counselorNotes}
           directorNotes={extras.directorNotes}
           onApply={(patch) => {
-            patchExtras(patch);
-            setEditing(null);
+            void applyAndSave(patch).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -335,8 +407,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           students={studentOptions}
           absentToday={absences}
           onApply={(parentRows) => {
-            patchExtras({ parentRows });
-            setEditing(null);
+            void applyAndSave({ parentRows }).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -346,8 +417,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           title={t('dailyReport.counselorNotes')}
           notes={extras.counselorNotes}
           onApply={(counselorNotes) => {
-            patchExtras({ counselorNotes });
-            setEditing(null);
+            void applyAndSave({ counselorNotes }).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -357,8 +427,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           title={t('dailyReport.directorNotes')}
           notes={extras.directorNotes}
           onApply={(directorNotes) => {
-            patchExtras({ directorNotes });
-            setEditing(null);
+            void applyAndSave({ directorNotes }).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -368,8 +437,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           title={t('dailyReport.observations')}
           notes={extras.observationsActions}
           onApply={(observationsActions) => {
-            patchExtras({ observationsActions });
-            setEditing(null);
+            void applyAndSave({ observationsActions }).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -379,12 +447,11 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           plannedMeal={extras.plannedMeal}
           mealServed={extras.mealServed}
           canteenNote={extras.canteenNote}
+          canteenEnteredCount={extras.canteenEnteredCount ?? null}
+          halfBoarderCount={computed?.canteen.halfBoarders ?? 0}
           canteenSupervisors={extras.canteenSupervisors}
           availableSupervisors={availableSupervisors}
-          onApply={(patch) => {
-            patchExtras(patch);
-            setEditing(null);
-          }}
+          onApply={(patch) => applyAndSave(patch, { canteenOnly: true })}
           onClose={() => setEditing(null)}
         />
       ) : null}
@@ -393,8 +460,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           lines={computed.teacherLines}
           notes={extras.teacherNotes}
           onApply={(teacherNotes) => {
-            patchExtras({ teacherNotes });
-            setEditing(null);
+            void applyAndSave({ teacherNotes }).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -404,8 +470,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           rows={extras.supervisorRows}
           supervisors={data.supervisors.map((item) => ({ id: item.id, name: item.name }))}
           onApply={(supervisorRows) => {
-            patchExtras({ supervisorRows });
-            setEditing(null);
+            void applyAndSave({ supervisorRows }).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />
@@ -415,8 +480,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           reportNumber={extras.reportNumber}
           schoolYear={extras.schoolYear}
           onApply={(details) => {
-            patchExtras(details);
-            setEditing(null);
+            void applyAndSave(details).catch(() => setEditing(null));
           }}
           onClose={() => setEditing(null)}
         />

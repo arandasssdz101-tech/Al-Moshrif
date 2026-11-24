@@ -11,10 +11,11 @@ import {
   loadEntryWorkspace,
   type ResetGateEntriesForDateResult,
 } from '@/db/entries';
-import type { EntryDayClosure, GateEntry, StudentAbsence } from '@/db/types';
+import type { EntryDayClosure, EntrySession, GateEntry, StudentAbsence } from '@/db/types';
 import { useSession } from '@/modules/auth/AuthContext';
 import { subscribeAppDataChanged } from '@/utils/dataEvents';
 import { todayIso } from '@/utils/dates';
+import { defaultEntrySession, getEntrySettings } from '@/utils/entry';
 import { errorKey } from '@/utils/errors';
 import { useAsyncData } from '@/utils/useAsyncData';
 import { EntryLogTab } from './EntryLogTab';
@@ -29,11 +30,15 @@ export function EntryScreen() {
   const { user, institution } = useSession();
   const today = todayIso();
   const [activeTab, setActiveTab] = useState<EntryTabId>('scan');
+  const [activeSession, setActiveSession] = useState<EntrySession>(() =>
+    defaultEntrySession(new Date(), getEntrySettings(institution).eveningStartTime),
+  );
   const [selectedDate, setSelectedDate] = useState(today);
   const [entriesToday, setEntriesToday] = useState<GateEntry[]>([]);
   const [entriesForSelected, setEntriesForSelected] = useState<GateEntry[]>([]);
   const [absencesToday, setAbsencesToday] = useState<StudentAbsence[]>([]);
-  const [closureToday, setClosureToday] = useState<EntryDayClosure | null>(null);
+  const [morningClosureToday, setMorningClosureToday] = useState<EntryDayClosure | null>(null);
+  const [eveningClosureToday, setEveningClosureToday] = useState<EntryDayClosure | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
@@ -44,19 +49,21 @@ export function EntryScreen() {
   );
 
   const refreshDayData = useCallback(async () => {
-    const [todayRows, selectedRows, absRows, closure] = await Promise.all([
+    const [todayRows, selectedRows, absRows, morningClosure, eveningClosure] = await Promise.all([
       listGateEntriesForDate(institution.id, today),
       selectedDate === today
         ? Promise.resolve<GateEntry[] | null>(null)
         : listGateEntriesForDate(institution.id, selectedDate),
       listStudentAbsencesForDate(institution.id, today),
-      getEntryDayClosure(institution.id, today),
+      getEntryDayClosure(institution.id, today, 'morning'),
+      getEntryDayClosure(institution.id, today, 'evening'),
     ]);
 
     setEntriesToday(todayRows);
     setEntriesForSelected(selectedRows ?? todayRows);
     setAbsencesToday(absRows);
-    setClosureToday(closure);
+    setMorningClosureToday(morningClosure);
+    setEveningClosureToday(eveningClosure);
     setDataLoading(false);
   }, [institution.id, today, selectedDate]);
 
@@ -84,6 +91,7 @@ export function EntryScreen() {
     setResetNotice(
       t('entry.resetByDate.successNotice', {
         date: result.date,
+        session: t(`entry.sessions.${result.session}`),
         entries: result.removedEntriesCount,
         absences: result.removedGateAbsencesCount,
       }),
@@ -102,6 +110,7 @@ export function EntryScreen() {
 
   const workspace = workspaceState.data;
   const resetInitialDate = activeTab === 'scan' ? today : selectedDate;
+  const closureForSession = activeSession === 'evening' ? eveningClosureToday : morningClosureToday;
 
   return (
     <div className="flex flex-col gap-5">
@@ -168,9 +177,11 @@ export function EntryScreen() {
           workspace={workspace}
           actorId={user.id}
           today={today}
+          session={activeSession}
+          onSessionChange={setActiveSession}
           entries={entriesToday}
           absencesToday={absencesToday}
-          closure={closureToday}
+          closure={closureForSession}
           onRefresh={refreshDayData}
         />
       ) : activeTab === 'today' ? (
@@ -207,3 +218,4 @@ export function EntryScreen() {
     </div>
   );
 }
+

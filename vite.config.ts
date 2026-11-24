@@ -90,13 +90,13 @@ export default defineConfig({
     },
   },
   build: {
-    target: ['es2017', 'chrome61', 'safari12'],
-    cssTarget: 'chrome61',
+    target: ['es2015', 'chrome55', 'safari12'],
+    cssTarget: 'chrome55',
   },
   optimizeDeps: {
     exclude: ['lucide-react'],
     esbuildOptions: {
-      target: 'es2017',
+      target: 'es2015',
     },
   },
   server: {

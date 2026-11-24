@@ -17,6 +17,7 @@ import {
   WHOLE_TABLE_ROWS,
   type DailyReportRender,
 } from '@/utils/dailyReportHtml';
+import { paginateDailyReportNotes, type PageNotesSlice } from '@/utils/dailyReportNotes';
 import { absenceRate, formatRate } from '@/utils/dailyReportStats';
 import { downloadBlob } from '@/utils/download';
 
@@ -163,7 +164,11 @@ function configureWorksheet(ws: ExcelJS.Worksheet, widths: number[], fitToHeight
   };
 }
 
-function buildPage1Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRender): ExcelJS.Worksheet {
+function buildPage1Worksheet(
+  workbook: ExcelJS.Workbook,
+  render: DailyReportRender,
+  notes: PageNotesSlice,
+): ExcelJS.Worksheet {
   const ws = workbook.addWorksheet('الصفحة 1 - التقرير اليومي');
   const classCols = levelColumnCount(render);
   const totalCols = classCols + 5; // default 16 cols when classCols = 11
@@ -517,15 +522,15 @@ function buildPage1Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRend
     'ملاحظات حول النظافة\nالصيانة والإتلاف - الحوادث\n- النشاط الثقافي والرياضي -\nدروس الدعم - الزيارات',
     { size: 9, bold: true, fill: FILL_SUBTLE },
   );
-  setMergedCell(ws, r, bodyStart, r, bodyEnd, render.counselorNotes || '', { size: 9.5, align: ALIGN_NOTE_BODY });
+  setMergedCell(ws, r, bodyStart, r, bodyEnd, notes.counselor || '', { size: 9.5, align: ALIGN_NOTE_BODY });
   setMergedCell(ws, r, signStart, r, totalCols, 'امضاء الناظر', { size: 10, bold: true });
-  ws.getRow(r).height = estimateHeight(render.counselorNotes, 58, 72);
+  ws.getRow(r).height = estimateHeight(notes.counselor, 58, 72);
   r += 1;
 
   setMergedCell(ws, r, 1, r, labelEnd, 'ملاحظات مدير المؤسسة', { size: 9.5, bold: true, fill: FILL_SUBTLE });
-  setMergedCell(ws, r, bodyStart, r, bodyEnd, render.directorNotes || '', { size: 9.5, align: ALIGN_NOTE_BODY });
+  setMergedCell(ws, r, bodyStart, r, bodyEnd, notes.director || '', { size: 9.5, align: ALIGN_NOTE_BODY });
   setMergedCell(ws, r, signStart, r, totalCols, 'امضاء المدير', { size: 10, bold: true });
-  ws.getRow(r).height = estimateHeight(render.directorNotes, 58, 42);
+  ws.getRow(r).height = estimateHeight(notes.director, 58, 42);
 
   applyGridBorders(ws, notesStart, 1, r, totalCols, MEDIUM, MEDIUM);
 
@@ -567,7 +572,11 @@ function writeParentRow(ws: ExcelJS.Worksheet, row: number, item: ParentCorrespo
   setMergedCell(ws, row, 12, row, 12, item ? formatDate(item.struckDate) : '', { size: 8.5 });
 }
 
-function buildPage2Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRender): ExcelJS.Worksheet {
+function buildPage2Worksheet(
+  workbook: ExcelJS.Workbook,
+  render: DailyReportRender,
+  notes: PageNotesSlice,
+): ExcelJS.Worksheet {
   const ws = workbook.addWorksheet('الصفحة 2 - الغيابات والمراسلات');
   const blockCount = Math.max(1, Math.ceil(render.wholeDayAbsences.length / WHOLE_BLOCK_SIZE));
 
@@ -669,15 +678,15 @@ function buildPage2Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRend
     'ملاحظات و اقتراحات\nمستشار التربية حول النظافة -\nالصيانة والإتلاف - الحوادث\n- النشاط الثقافي والرياضي -\nدروس الدعم - الزيارات',
     { size: 9, bold: true, fill: FILL_SUBTLE },
   );
-  setMergedCell(ws, r, 3, r, 9, render.counselorNotes || '', { size: 9.5, align: ALIGN_NOTE_BODY });
+  setMergedCell(ws, r, 3, r, 9, notes.counselor || '', { size: 9.5, align: ALIGN_NOTE_BODY });
   setMergedCell(ws, r, 10, r, 12, 'الامضاء', { size: 10.5, bold: true });
-  ws.getRow(r).height = estimateHeight(render.counselorNotes, 58, 72);
+  ws.getRow(r).height = estimateHeight(notes.counselor, 58, 72);
   r += 1;
 
   setMergedCell(ws, r, 1, r, 2, 'ملاحظات مدير المؤسسة', { size: 9.5, bold: true, fill: FILL_SUBTLE });
-  setMergedCell(ws, r, 3, r, 9, render.directorNotes || '', { size: 9.5, align: ALIGN_NOTE_BODY });
+  setMergedCell(ws, r, 3, r, 9, notes.director || '', { size: 9.5, align: ALIGN_NOTE_BODY });
   setMergedCell(ws, r, 10, r, 12, 'الامضاء', { size: 10.5, bold: true });
-  ws.getRow(r).height = estimateHeight(render.directorNotes, 58, 86);
+  ws.getRow(r).height = estimateHeight(notes.director, 58, notes.counselor ? 44 : 86);
   applyGridBorders(ws, notesStart, 1, r, 12, MEDIUM, MEDIUM);
   r += 1;
 
@@ -692,12 +701,88 @@ function buildPage2Worksheet(workbook: ExcelJS.Workbook, render: DailyReportRend
   return ws;
 }
 
+function buildExtraNotesWorksheet(
+  workbook: ExcelJS.Workbook,
+  render: DailyReportRender,
+  notes: PageNotesSlice,
+  extraIndex: number,
+  extraTotal: number,
+): ExcelJS.Worksheet {
+  const pageNumber = 3 + extraIndex;
+  const ws = workbook.addWorksheet(`الصفحة ${pageNumber} - تابع الملاحظات`);
+  const widths = [5.5, 21.5, 7.5, 10.5, 12.5, 5.5, 8.5, 11.5, 7.5, 4.0, 8.5, 12.0];
+  configureWorksheet(ws, widths, 1);
+
+  let r = 1;
+  setMergedCell(ws, r, 1, r, 8, `المؤسسة : ${render.header.institution}`, {
+    size: 10,
+    bold: true,
+    align: ALIGN_RIGHT,
+  });
+  setMergedCell(ws, r, 9, r, 12, `ليوم : ${formatDate(render.header.reportDate)}`, {
+    size: 10,
+    bold: true,
+    align: ALIGN_LEFT,
+  });
+  ws.getRow(r).height = 20;
+  r += 1;
+
+  const suffix = extraTotal > 1 ? ` (${extraIndex + 1}/${extraTotal})` : '';
+  setMergedCell(ws, r, 1, r, 12, `تابع التقرير اليومي — تتمة ملاحظات الصفحة الثانية${suffix}`, {
+    size: 10.5,
+    bold: true,
+    align: ALIGN_RIGHT,
+  });
+  ws.getRow(r).height = 20;
+  r += 1;
+
+  const notesStart = r;
+  if (notes.counselor) {
+    setMergedCell(
+      ws,
+      r,
+      1,
+      r,
+      2,
+      'ملاحظات و اقتراحات\nمستشار التربية\n(تابع)',
+      { size: 9, bold: true, fill: FILL_SUBTLE },
+    );
+    setMergedCell(ws, r, 3, r, 9, notes.counselor, { size: 9.5, align: ALIGN_NOTE_BODY });
+    setMergedCell(ws, r, 10, r, 12, 'الامضاء', { size: 10.5, bold: true });
+    ws.getRow(r).height = estimateHeight(notes.counselor, 58, 96);
+    r += 1;
+  }
+  if (notes.director) {
+    setMergedCell(ws, r, 1, r, 2, 'ملاحظات مدير المؤسسة\n(تابع)', { size: 9.5, bold: true, fill: FILL_SUBTLE });
+    setMergedCell(ws, r, 3, r, 9, notes.director, { size: 9.5, align: ALIGN_NOTE_BODY });
+    setMergedCell(ws, r, 10, r, 12, 'الامضاء', { size: 10.5, bold: true });
+    ws.getRow(r).height = estimateHeight(notes.director, 58, 96);
+    r += 1;
+  }
+  if (r > notesStart) {
+    applyGridBorders(ws, notesStart, 1, r - 1, 12, MEDIUM, MEDIUM);
+  }
+
+  ws.getRow(r).height = 24;
+  setMergedCell(ws, r, 6, r, 12, footerText(render.header.city, render.header.reportDate), {
+    size: 10.5,
+    bold: true,
+    align: ALIGN_CENTER,
+  });
+
+  return ws;
+}
+
 export function buildDailyReportWorkbook(render: DailyReportRender): ExcelJS.Workbook {
   const workbook = new ExcelJS.Workbook();
   workbook.creator = render.header.institution || 'الإشراف التربوي';
   workbook.created = new Date();
-  buildPage1Worksheet(workbook, render);
-  buildPage2Worksheet(workbook, render);
+  const paginatedNotes = paginateDailyReportNotes(render);
+  buildPage1Worksheet(workbook, render, paginatedNotes.page1);
+  buildPage2Worksheet(workbook, render, paginatedNotes.page2);
+  paginatedNotes.extraPages.forEach((extraSlice, index) => {
+    buildExtraNotesWorksheet(workbook, render, extraSlice, index, paginatedNotes.extraPages.length);
+  });
   return workbook;
 }
 

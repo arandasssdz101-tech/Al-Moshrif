@@ -32,6 +32,7 @@ export interface InstitutionSettingsInput {
   cardAbsenceEnabled?: boolean;
   librarySupervisorsCanManage?: boolean;
   entryStartTime?: string;
+  entryEveningStartTime?: string;
   entryLateAfterMinutes?: number;
   entryUseFirstTimetableLesson?: boolean;
   entrySoundEnabled?: boolean;
@@ -76,6 +77,7 @@ export async function updateInstitutionSettings(
     librarySupervisorsCanManage:
       input.librarySupervisorsCanManage ?? institution.librarySupervisorsCanManage ?? false,
     entryStartTime: input.entryStartTime ?? institution.entryStartTime ?? '08:00',
+    entryEveningStartTime: input.entryEveningStartTime ?? institution.entryEveningStartTime ?? '13:00',
     entryLateAfterMinutes: input.entryLateAfterMinutes ?? institution.entryLateAfterMinutes ?? 10,
     entryUseFirstTimetableLesson:
       input.entryUseFirstTimetableLesson ?? institution.entryUseFirstTimetableLesson ?? false,

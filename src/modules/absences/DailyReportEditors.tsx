@@ -213,14 +213,17 @@ interface CanteenNoteEditorProps {
   plannedMeal: string;
   mealServed: string;
   canteenNote: string;
+  canteenEnteredCount: number | null;
+  halfBoarderCount: number;
   canteenSupervisors: string[];
   availableSupervisors: string[];
   onApply: (patch: {
     plannedMeal: string;
     mealServed: string;
     canteenNote: string;
+    canteenEnteredCount: number | null;
     canteenSupervisors: string[];
-  }) => void;
+  }) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -228,6 +231,8 @@ export function CanteenNoteEditor({
   plannedMeal,
   mealServed,
   canteenNote,
+  canteenEnteredCount,
+  halfBoarderCount,
   canteenSupervisors,
   availableSupervisors,
   onApply,
@@ -237,6 +242,11 @@ export function CanteenNoteEditor({
   const [planned, setPlanned] = useState(plannedMeal);
   const [meal, setMeal] = useState(mealServed);
   const [note, setNote] = useState(canteenNote);
+  const [enteredText, setEnteredText] = useState(
+    canteenEnteredCount !== null && canteenEnteredCount !== undefined ? String(canteenEnteredCount) : '',
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [sups, setSups] = useState<string[]>(() =>
     Array.from({ length: CANTEEN_SUPERVISOR_ROWS }, (_, index) => canteenSupervisors[index] ?? ''),
   );
@@ -244,9 +254,56 @@ export function CanteenNoteEditor({
   const updateSup = (index: number, value: string) =>
     setSups((previous) => previous.map((item, position) => (position === index ? value : item)));
 
+  const trimmedEntered = enteredText.trim();
+  const enteredValid = trimmedEntered === '' || (/^\d+$/.test(trimmedEntered) && Number.isSafeInteger(Number(trimmedEntered)));
+  const parsedEntered = trimmedEntered !== '' && enteredValid ? Number(trimmedEntered) : null;
+
+  const handleSave = async () => {
+    if (saving) return;
+    if (!enteredValid) {
+      setError(t('canteenDailyInfo.invalidEnteredCount'));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await onApply({
+        plannedMeal: planned,
+        mealServed: meal,
+        canteenNote: note,
+        canteenEnteredCount: parsedEntered,
+        canteenSupervisors: sups.map((item) => item.trim()).filter(Boolean),
+      });
+    } catch {
+      setError(t('dailyReport.saveFailed'));
+      setSaving(false);
+    }
+  };
+
   return (
-    <Modal open title={t('dailyReport.canteenNote')} onClose={onClose}>
+    <Modal open title={t('dailyReport.canteenNote')} onClose={saving ? () => undefined : onClose}>
       <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto pe-1">
+        <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
+          {t('dailyReport.canteenEnteredCount')}
+          <input
+            type="number"
+            min={0}
+            step={1}
+            inputMode="numeric"
+            value={enteredText}
+            placeholder={t('canteenDailyInfo.enteredCountPlaceholder')}
+            onChange={(event) => {
+              setEnteredText(event.target.value);
+              setError(null);
+            }}
+            className={`${INPUT_CLASS} tabular-nums`}
+          />
+          <span className="text-xs font-normal text-neutral-500">
+            {parsedEntered !== null
+              ? `${t('canteenDailyInfo.summaryHalfBoarders')}: ${halfBoarderCount} · ${t('canteenDailyInfo.summaryAbsent')}: ${Math.max(0, halfBoarderCount - parsedEntered)}`
+              : t('dailyReport.canteenEnteredCountHint')}
+          </span>
+        </label>
         <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
           {t('dailyReport.plannedMeal')}
           <textarea
@@ -304,18 +361,9 @@ export function CanteenNoteEditor({
             </div>
           ))}
         </div>
-        <Button
-          fullWidth
-          onClick={() =>
-            onApply({
-              plannedMeal: planned,
-              mealServed: meal,
-              canteenNote: note,
-              canteenSupervisors: sups.map((item) => item.trim()).filter(Boolean),
-            })
-          }
-        >
-          {t('dailyReport.apply')}
+        {error ? <p className="text-sm font-medium text-danger-700">{error}</p> : null}
+        <Button fullWidth disabled={saving} onClick={() => void handleSave()}>
+          {saving ? t('canteenDailyInfo.saving') : t('dailyReport.apply')}
         </Button>
       </div>
     </Modal>

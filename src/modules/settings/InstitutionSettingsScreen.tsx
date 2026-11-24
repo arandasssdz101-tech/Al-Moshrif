@@ -36,6 +36,7 @@ interface InstitutionForm {
   cardAbsenceEnabled: boolean;
   librarySupervisorsCanManage: boolean;
   entryStartTime: string;
+  entryEveningStartTime: string;
   entryLateAfterMinutes: string;
   entryUseFirstTimetableLesson: boolean;
   entrySoundEnabled: boolean;
@@ -72,6 +73,7 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
       cardAbsenceEnabled: isCardAbsenceEnabled(institution),
       librarySupervisorsCanManage: canSupervisorsManageLibrary(institution),
       entryStartTime: entryDefaults.startTime,
+      entryEveningStartTime: entryDefaults.eveningStartTime,
       entryLateAfterMinutes: String(entryDefaults.lateAfterMinutes),
       entryUseFirstTimetableLesson: entryDefaults.useFirstTimetableLesson,
       entrySoundEnabled: entryDefaults.soundEnabled,
@@ -136,6 +138,7 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
           cardAbsenceEnabled: form.cardAbsenceEnabled,
           librarySupervisorsCanManage: form.librarySupervisorsCanManage,
           entryStartTime: form.entryStartTime || '08:00',
+          entryEveningStartTime: form.entryEveningStartTime || '13:00',
           entryLateAfterMinutes: Math.max(0, Number(form.entryLateAfterMinutes) || 0),
           entryUseFirstTimetableLesson: form.entryUseFirstTimetableLesson,
           entrySoundEnabled: form.entrySoundEnabled,
@@ -327,7 +330,7 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
         </Section>
 
         <Section title={t('institution.entrySection')} hint={t('institution.entryHint')}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
               {t('institution.entryStartTime')}
               <input
@@ -336,6 +339,18 @@ export function InstitutionSettingsScreen({ onBack }: { onBack: () => void }) {
                 onChange={(event) => {
                   setSaved(false);
                   setForm((previous) => ({ ...previous, entryStartTime: event.target.value }));
+                }}
+                className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm font-medium text-neutral-700">
+              {t('institution.entryEveningStartTime')}
+              <input
+                type="time"
+                value={form.entryEveningStartTime}
+                onChange={(event) => {
+                  setSaved(false);
+                  setForm((previous) => ({ ...previous, entryEveningStartTime: event.target.value }));
                 }}
                 className="min-h-11 rounded-xl border border-neutral-300 bg-white px-3 text-base text-neutral-900"
               />

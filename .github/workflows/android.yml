@@ -71,7 +71,7 @@ jobs:
             echo "Applied custom launcher icons to android/app/src/main/res"
           fi
 
-      - name: Patch AndroidManifest and Gradle (camera, barcode scanner, Android 7-16 compatibility)
+      - name: Patch AndroidManifest and Gradle (camera, barcode scanner, universal Android 7-16 compatibility)
         run: |
           python3 - <<'PY'
           import pathlib, re
@@ -83,6 +83,7 @@ jobs:
               ('android:enableOnBackInvokedCallback', 'android:enableOnBackInvokedCallback="true"'),
               ('android:hardwareAccelerated', 'android:hardwareAccelerated="true"'),
               ('android:largeHeap', 'android:largeHeap="true"'),
+              ('android:requestLegacyExternalStorage', 'android:requestLegacyExternalStorage="true"'),
               ('android:usesCleartextTraffic', 'android:usesCleartextTraffic="true"'),
           ]
           for attr_key, attr_val in app_attrs:
@@ -91,6 +92,10 @@ jobs:
           add = ""
           if "android.permission.CAMERA" not in ms:
               add += '    <uses-permission android:name="android.permission.CAMERA" />\n'
+          if "android.permission.READ_EXTERNAL_STORAGE" not in ms:
+              add += '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />\n'
+          if "android.permission.WRITE_EXTERNAL_STORAGE" not in ms:
+              add += '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />\n'
           if "android.hardware.camera" not in ms:
               add += '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
           if add:
@@ -101,7 +106,16 @@ jobs:
           mp.write_text(ms, encoding="utf-8")
           print(ms)
 
-          # 2. Patch android/app/build.gradle (MultiDex + VectorDrawables + 16KB page-size jniLibs)
+          # 2. Enforce Android 7.0 (API 24) -> Android 16 (API 36) in android/variables.gradle
+          vp = pathlib.Path("android/variables.gradle")
+          if vp.exists():
+              vs = vp.read_text(encoding="utf-8")
+              vs = re.sub(r'minSdkVersion\s*=\s*\d+', 'minSdkVersion = 24', vs)
+              vs = re.sub(r'compileSdkVersion\s*=\s*\d+', 'compileSdkVersion = 36', vs)
+              vs = re.sub(r'targetSdkVersion\s*=\s*\d+', 'targetSdkVersion = 36', vs)
+              vp.write_text(vs, encoding="utf-8")
+
+          # 3. Patch android/app/build.gradle (MultiDex + VectorDrawables + Universal ABIs + v1/v2/v3 signing + 16KB jniLibs)
           gp = pathlib.Path("android/app/build.gradle")
           gs = gp.read_text(encoding="utf-8")
           if "multiDexEnabled" not in gs:
@@ -111,10 +125,32 @@ jobs:
                   gs,
                   count=1,
               )
+          if "enableV1Signing" not in gs:
+              extra_blocks = (
+                  "    splits {\n"
+                  "        abi {\n"
+                  "            enable false\n"
+                  "        }\n"
+                  "    }\n"
+                  "    signingConfigs {\n"
+                  "        debug {\n"
+                  "            enableV1Signing true\n"
+                  "            enableV2Signing true\n"
+                  "            enableV3Signing true\n"
+                  "        }\n"
+                  "    }\n"
+              )
+              gs = gs.replace("    buildTypes {", extra_blocks + "    buildTypes {", 1)
           if "useLegacyPackaging" not in gs:
               gs = gs.replace(
                   "    buildTypes {",
                   "    packaging {\n        jniLibs {\n            useLegacyPackaging = false\n        }\n    }\n    buildTypes {",
+                  1,
+              )
+          if "androidx.multidex:multidex" not in gs:
+              gs = gs.replace(
+                  "dependencies {",
+                  'dependencies {\n    implementation "androidx.multidex:multidex:2.0.1"',
                   1,
               )
           gp.write_text(gs, encoding="utf-8")
@@ -123,7 +159,7 @@ jobs:
       - name: Set app version from the run number
         run: |
           sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/; s/versionName \"[^\"]*\"/versionName \"1.0.${{ github.run_number }}\"/" android/app/build.gradle
-          grep -nE "versionCode|versionName|multiDexEnabled|useLegacyPackaging" android/app/build.gradle
+          grep -nE "versionCode|versionName|multiDexEnabled|useLegacyPackaging|enableV1Signing" android/app/build.gradle
 
       - name: Use the stable debug keystore (so updates install over the old version)
         run: |
@@ -144,13 +180,13 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
 
-      - name: Show permissions, version and signer inside the APK
+      - name: Show SDK range, ABIs, permissions, version and v1/v2/v3 signatures inside the APK
         run: |
           APK=android/app/build/outputs/apk/debug/app-debug.apk
           BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
-          "$BT/aapt" dump badging "$APK" | grep -E "^package:|uses-permission|uses-feature" || true
+          "$BT/aapt" dump badging "$APK" | grep -E "^package:|sdkVersion|targetSdkVersion|native-code|uses-permission|uses-feature" || true
           echo "--- signer ---"
-          "$BT/apksigner" verify --print-certs "$APK" | head -n 3 || true
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | head -n 10 || true
 
       - name: Rename APK
         run: cp android/app/build/outputs/apk/debug/app-debug.apk school-admin.apk

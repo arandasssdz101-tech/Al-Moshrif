@@ -6,12 +6,16 @@ import {
   computeLateStatus,
   computeTenMinuteBuckets,
   decideGateScan,
+  defaultEntrySession,
   DEFAULT_ENTRY_SETTINGS,
+  getEntrySettings,
   planAutoAbsencesForStart,
   planStudentGateAbsenceSync,
+  resolveEntrySession,
   resolveExpectedStartTime,
 } from '@/utils/entry';
 import { buildEntryExport, parseEntryExport, planEntryMerge } from '@/utils/entryMerge';
+import { planGateEntryAbsenceSync } from '@/utils/gateAbsenceSync';
 import { normalizeScannedCode } from '@/utils/studentQr';
 
 const BASE = {
@@ -278,5 +282,163 @@ describe('Gate Entry domain logic', () => {
     expect(latePlan.toSoftDeleteIds).toEqual(['a2']);
     expect(latePlan.toAdd).toEqual([]);
     expect(latePlan.hasManualAbsence).toBe(true);
+  });
+
+  it('supports evening period starting at 13:00 without duplicate conflict against morning entry', () => {
+    const settings = getEntrySettings({});
+    expect(settings.eveningStartTime).toBe('13:00');
+    expect(defaultEntrySession(new Date(2026, 9, 12, 8, 15))).toBe('morning');
+    expect(defaultEntrySession(new Date(2026, 9, 12, 13, 0))).toBe('evening');
+    expect(resolveEntrySession({ time: '13:02:00' })).toBe('evening');
+    expect(resolveEntrySession({ time: '08:05:00' })).toBe('morning');
+
+    const students = [makeStudent({ id: 's1', classId: 'c1', cardCode: '123456' })];
+    const slots: TimetableSlot[] = [
+      { ...BASE, id: 'sl1', classId: 'c1', day: 1, period: 1, subject: 'رياضيات', teacherId: null, roomId: null },
+      { ...BASE, id: 'sl5', classId: 'c1', day: 1, period: 6, subject: 'تاريخ', teacherId: null, roomId: null },
+    ];
+
+    expect(
+      resolveExpectedStartTime('c1', '2026-10-12', slots, {
+        startTime: '08:00',
+        eveningStartTime: '13:00',
+        useFirstTimetableLesson: false,
+      }, 'evening'),
+    ).toBe('13:00');
+    expect(
+      resolveExpectedStartTime('c1', '2026-10-12', slots, {
+        startTime: '08:00',
+        eveningStartTime: '13:00',
+        useFirstTimetableLesson: true,
+      }, 'evening'),
+    ).toBe('14:00');
+
+    const morningEntry = makeEntry({
+      id: 'e-morning',
+      studentId: 's1',
+      time: '07:55:00',
+      session: 'morning',
+      result: 'accepted',
+    });
+
+    // Scanning again in evening must be accepted (and on-time at 13:05 with 10 min grace)
+    const eveningAccepted = decideGateScan({
+      rawCode: '123456',
+      date: '2026-10-12',
+      time: '13:05:00',
+      session: 'evening',
+      students,
+      entriesForDate: [morningEntry],
+      slots,
+      settings,
+    });
+    expect(eveningAccepted.result).toBe('accepted');
+    expect(eveningAccepted.session).toBe('evening');
+    expect(eveningAccepted.late).toBe(false);
+
+    // Late evening scan at 13:20 is 20 min late against 13:00
+    const eveningLate = decideGateScan({
+      rawCode: '123456',
+      date: '2026-10-12',
+      time: '13:20:00',
+      session: 'evening',
+      students,
+      entriesForDate: [morningEntry],
+      slots,
+      settings,
+    });
+    expect(eveningLate.result).toBe('accepted');
+    expect(eveningLate.late).toBe(true);
+    expect(eveningLate.minutesLate).toBe(20);
+
+    // Second scan within evening IS duplicate
+    const eveningDup = decideGateScan({
+      rawCode: '123456',
+      date: '2026-10-12',
+      time: '13:25:00',
+      session: 'evening',
+      students,
+      entriesForDate: [
+        morningEntry,
+        makeEntry({
+          id: 'e-evening',
+          studentId: 's1',
+          time: '13:05:00',
+          session: 'evening',
+          result: 'accepted',
+        }),
+      ],
+      slots,
+      settings,
+    });
+    expect(eveningDup.result).toBe('duplicate');
+    expect(eveningDup.existingTime).toBe('13:05');
+
+    // Evening stats count evening entries independently from morning entries
+    const morningStats = computeEntryStats(students, [morningEntry], '2026-10-12', 'morning');
+    const eveningStatsBefore = computeEntryStats(students, [morningEntry], '2026-10-12', 'evening');
+    expect(morningStats.entered).toBe(1);
+    expect(eveningStatsBefore.entered).toBe(0);
+  });
+
+  it('scopes missed periods, auto-absence sync, and merge separately for morning and evening sessions', () => {
+    const students = [
+      makeStudent({ id: 's1', classId: 'c1' }),
+      makeStudent({ id: 's2', classId: 'c1' }),
+    ];
+    const slots: TimetableSlot[] = [
+      { ...BASE, id: 'sl1', classId: 'c1', day: 1, period: 1, subject: 'رياضيات', teacherId: null, roomId: null },
+      { ...BASE, id: 'sl5', classId: 'c1', day: 1, period: 5, subject: 'فرنسية', teacherId: null, roomId: null },
+      { ...BASE, id: 'sl6', classId: 'c1', day: 1, period: 6, subject: 'فيزياء', teacherId: null, roomId: null },
+    ];
+
+    // Arriving at 14:15 in evening only misses period 5 (13:00-14:00), NOT morning period 1
+    expect(computeLateMissedPeriods('c1', '2026-10-12', '14:15:00', slots, 'evening')).toEqual([
+      { period: 5, subject: 'فرنسية' },
+    ]);
+
+    // Evening scan sync leaves morning gate absence untouched and clears evening gate absences
+    const eveningScanPlan = planStudentGateAbsenceSync({
+      classId: 'c1',
+      date: '2026-10-12',
+      entryTime: '13:02:00',
+      late: false,
+      session: 'evening',
+      slots,
+      existingStudentAbsences: [
+        { id: 'a1', period: 1, source: 'gate', deletedAt: null },
+        { id: 'a5', period: 5, source: 'gate', deletedAt: null },
+        { id: 'a6', period: 6, source: 'gate', deletedAt: null },
+      ],
+      markLateMissedLessons: true,
+    });
+    expect(eveningScanPlan.toSoftDeleteIds).toEqual(['a5', 'a6']);
+
+    // Full-day sync when evening activity exists handles morning and evening separately
+    const syncPlan = planGateEntryAbsenceSync({
+      date: '2026-10-12',
+      students,
+      slots,
+      entries: [
+        makeEntry({ id: 'e1m', studentId: 's1', time: '07:55:00', session: 'morning' }),
+        makeEntry({ id: 'e1e', studentId: 's1', time: '13:02:00', session: 'evening' }),
+        makeEntry({ id: 'e2m', studentId: 's2', time: '07:58:00', session: 'morning' }),
+      ],
+      existingAbsences: [],
+      markLateMissedLessons: false,
+    });
+    expect(syncPlan.toAdd).toEqual([
+      { studentId: 's2', classId: 'c1', period: 5, subject: 'فرنسية' },
+      { studentId: 's2', classId: 'c1', period: 6, subject: 'فيزياء' },
+    ]);
+
+    // Multi-device merge keeps 1 morning accepted AND 1 evening accepted for the same student
+    const mergePlan = planEntryMerge(
+      [makeEntry({ id: 'm1', studentId: 's1', time: '07:55:00', session: 'morning' })],
+      [makeEntry({ id: 'ev1', studentId: 's1', time: '13:01:00', session: 'evening' })],
+      'inst-1',
+    );
+    expect(mergePlan.addedCount).toBe(1);
+    expect(mergePlan.downgradedToDuplicateCount).toBe(0);
   });
 });

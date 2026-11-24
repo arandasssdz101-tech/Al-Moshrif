@@ -17,8 +17,10 @@ import {
   toPrintableCard,
 } from '@/utils/studentCardsPrint';
 import {
+  STUDENT_CARD_ISSUANCE_VERSION,
   buildStudentQrForRecord,
   buildStudentQrPayload,
+  deriveStableStudentCardKey,
   formatCardBirthDate,
   formatCardBirthPlace,
   formatStudentGender,
@@ -27,6 +29,7 @@ import {
   matchStudentFromScan,
   normalizeScannedCode,
   parseStudentQrPayload,
+  studentRegistrationNumber,
 } from '@/utils/studentQr';
 
 function makeStudent(overrides: Partial<Student> = {}): Student {
@@ -53,10 +56,13 @@ function makeStudent(overrides: Partial<Student> = {}): Student {
 }
 
 describe('Student ID & QR Cards utilities', () => {
-  it('encodes and parses structured UTF-8 student QR payloads accurately', () => {
+  it('encodes and parses structured UTF-8 student QR payloads with fixed card version and permanent key', () => {
     const student = makeStudent();
+    const stableKey = deriveStableStudentCardKey(student);
     const payload = buildStudentQrForRecord(student, '1م1', '2026/2025');
-    expect(payload).toBe('ID:stu-101|NAME:أحمد بن سالم|CLASS:1م1|REGIME:نصف داخلي|YEAR:2026/2025');
+    expect(payload).toBe(
+      `ID:stu-101|NAME:أحمد بن سالم|CLASS:1م1|REGIME:نصف داخلي|YEAR:2026/2025|VER:${STUDENT_CARD_ISSUANCE_VERSION}|CID:${stableKey}|REG:REG-2026-001|DOB:2013-04-10`,
+    );
 
     const parsed = parseStudentQrPayload(payload);
     expect(parsed).toEqual({
@@ -65,7 +71,54 @@ describe('Student ID & QR Cards utilities', () => {
       className: '1م1',
       regime: 'نصف داخلي',
       year: '2026/2025',
+      ver: String(STUDENT_CARD_ISSUANCE_VERSION),
+      cid: stableKey,
+      reg: 'REG-2026-001',
+      dob: '2013-04-10',
     });
+  });
+
+  it('keeps card issuance fixed across different backups/UUIDs so printed cards are never rejected', () => {
+    const studentFromBackup1 = makeStudent({
+      id: 'uuid-backup-1',
+      cardCode: null,
+      firstName: 'أحمد',
+      lastName: 'بن سالم',
+      dateOfBirth: '2013-04-10',
+    });
+    const studentFromBackup2 = makeStudent({
+      id: 'uuid-backup-2',
+      cardCode: null,
+      firstName: 'أحمد',
+      lastName: 'بن سالم',
+      dateOfBirth: '2013-04-10',
+    });
+
+    // Deterministic card key and fallback registration number stay identical across backups
+    expect(deriveStableStudentCardKey(studentFromBackup1)).toBe(deriveStableStudentCardKey(studentFromBackup2));
+    expect(studentRegistrationNumber(studentFromBackup1)).toBe(studentRegistrationNumber(studentFromBackup2));
+
+    // Card printed from Backup 1 scans cleanly against Backup 2 (different random UUID!)
+    const printedCardQr = buildStudentQrForRecord(studentFromBackup1, '1م1', '2026/2025');
+    expect(matchStudentFromScan([studentFromBackup2], printedCardQr)?.id).toBe('uuid-backup-2');
+    expect(findStudentByCode([studentFromBackup2], printedCardQr, 'cardCode')?.id).toBe('uuid-backup-2');
+
+    // Legacy already-printed card (without VER/CID) whose UUID changed still matches safely
+    const legacyQr = 'ID:old-deleted-uuid|NAME:أحمد بن سالم|CLASS:1م1|REGIME:نصف داخلي|YEAR:2026/2025';
+    expect(matchStudentFromScan([studentFromBackup2], legacyQr)?.id).toBe('uuid-backup-2');
+    expect(findStudentByCode([studentFromBackup2], legacyQr, 'cardCode')?.id).toBe('uuid-backup-2');
+
+    // Homonym safety: if two different students share the same name and legacy card has no DOB/CID, do NOT guess
+    const homonymOther = makeStudent({
+      id: 'uuid-other',
+      cardCode: null,
+      firstName: 'أحمد',
+      lastName: 'بن سالم',
+      dateOfBirth: '2014-01-15',
+    });
+    expect(matchStudentFromScan([studentFromBackup2, homonymOther], legacyQr)).toBeNull();
+    // With the fixed CID + DOB card, homonyms disambiguate cleanly!
+    expect(matchStudentFromScan([studentFromBackup2, homonymOther], printedCardQr)?.id).toBe('uuid-backup-2');
   });
 
   it('formats all supported regime labels including boarder', () => {

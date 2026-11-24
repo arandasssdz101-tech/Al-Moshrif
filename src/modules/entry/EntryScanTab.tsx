@@ -15,9 +15,10 @@ import {
   XCircle,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Moon, Sun } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import type { EntryDayClosure, EntrySource, GateEntry, Student, StudentAbsence } from '@/db/types';
+import type { EntryDayClosure, EntrySession, EntrySource, GateEntry, Student, StudentAbsence } from '@/db/types';
 import type { EntryWorkspace } from '@/db/entries';
 import {
   clearGateAutoAbsencesForDay,
@@ -34,6 +35,7 @@ import { isCardAbsenceEnabled } from '@/db/institutions';
 import {
   computeEntryStats,
   decideGateScan,
+  filterEntriesBySession,
   getEntrySettings,
   isInstitutionHolidayOrClosed,
   nowTimeHms,
@@ -48,6 +50,8 @@ interface EntryScanTabProps {
   workspace: EntryWorkspace;
   actorId: string;
   today: string;
+  session: EntrySession;
+  onSessionChange: (session: EntrySession) => void;
   entries: GateEntry[];
   absencesToday: StudentAbsence[];
   closure: EntryDayClosure | null;
@@ -72,6 +76,8 @@ export function EntryScanTab({
   workspace,
   actorId,
   today,
+  session,
+  onSessionChange,
   entries,
   absencesToday,
   closure,
@@ -117,7 +123,14 @@ export function EntryScanTab({
 
   const holidayInfo = useMemo(() => isInstitutionHolidayOrClosed(today, institution), [today, institution]);
   const cardAbsenceEnabled = isCardAbsenceEnabled(institution);
-  const stats = useMemo(() => computeEntryStats(students, entries, today), [students, entries, today]);
+  const sessionEntries = useMemo(
+    () => filterEntriesBySession(entries, session, settings.eveningStartTime),
+    [entries, session, settings.eveningStartTime],
+  );
+  const stats = useMemo(
+    () => computeEntryStats(students, entries, today, session, settings.eveningStartTime),
+    [students, entries, today, session, settings.eveningStartTime],
+  );
 
   const absentStudentIdsToday = useMemo(
     () => new Set(absencesToday.filter((item) => item.deletedAt === null).map((item) => item.studentId)),
@@ -127,17 +140,17 @@ export function EntryScanTab({
   const enteredStudentIdsToday = useMemo(
     () =>
       new Set(
-        entries
+        sessionEntries
           .filter((item) => item.deletedAt === null && item.date === today && item.result === 'accepted' && item.studentId)
           .map((item) => item.studentId as string),
       ),
-    [entries, today],
+    [sessionEntries, today],
   );
 
-  const latestScans = useMemo(() => entries.slice(0, 10), [entries]);
+  const latestScans = useMemo(() => sessionEntries.slice(0, 10), [sessionEntries]);
   const lastAcceptedEntry = useMemo(
-    () => entries.find((item) => item.deletedAt === null && item.result === 'accepted') ?? null,
-    [entries],
+    () => sessionEntries.find((item) => item.deletedAt === null && item.result === 'accepted') ?? null,
+    [sessionEntries],
   );
 
   const showBanner = useCallback((next: Omit<ActiveBanner, 'id'>, durationMs: number) => {
@@ -162,6 +175,7 @@ export function EntryScanTab({
           rawCode,
           date: today,
           time,
+          session,
           students,
           entriesForDate: entriesRef.current,
           slots,
@@ -177,6 +191,7 @@ export function EntryScanTab({
           scannedCode: decision.scannedCode,
           date: today,
           time,
+          session: decision.session,
           result: decision.result,
           late: decision.late,
           minutesLate: decision.minutesLate,
@@ -192,7 +207,7 @@ export function EntryScanTab({
         let hasManualAbsence = false;
         if (decision.result === 'accepted' && student) {
           if (cardAbsenceEnabled) {
-            await ensureGateAutoAbsencesStarted(institution.id, actorId, today);
+            await ensureGateAutoAbsencesStarted(institution.id, actorId, today, decision.session);
             const syncResult = await syncStudentGateAbsenceOnAcceptedScan(
               institution.id,
               actorId,
@@ -200,6 +215,7 @@ export function EntryScanTab({
               today,
               time,
               decision.late,
+              decision.session,
             );
             hasManualAbsence = syncResult.hasManualAbsence;
           } else {
@@ -305,7 +321,7 @@ export function EntryScanTab({
         await onRefresh();
       });
     },
-    [access.canEdit, today, students, slots, settings, cardAbsenceEnabled, institution.canteenMatchField, institution.id, actorId, azertyFix, classById, t, showBanner, onRefresh],
+    [access.canEdit, today, session, students, slots, settings, cardAbsenceEnabled, institution.canteenMatchField, institution.id, actorId, azertyFix, classById, t, showBanner, onRefresh],
   );
 
   const handleCameraDetect = useCallback(
@@ -346,7 +362,7 @@ export function EntryScanTab({
     try {
       await softDeleteGateEntry(undoTarget.id, actorId);
       if (undoTarget.result === 'accepted' && undoTarget.studentId) {
-        await restoreStudentGateAbsencesAfterUndo(institution.id, actorId, undoTarget.studentId, today);
+        await restoreStudentGateAbsencesAfterUndo(institution.id, actorId, undoTarget.studentId, today, session);
       }
       setUndoTarget(null);
       setStatusNotice(t('entry.notices.scanUndone'));
@@ -360,14 +376,14 @@ export function EntryScanTab({
     const next = !cameraOn;
     setCameraOn(next);
     if (next && access.canEdit && cardAbsenceEnabled && !closure?.autoAbsencesSyncedAt) {
-      void ensureGateAutoAbsencesStarted(institution.id, actorId, today).then(() => onRefresh());
+      void ensureGateAutoAbsencesStarted(institution.id, actorId, today, session).then(() => onRefresh());
     }
   };
 
   const handleClearAutoAbsences = async () => {
     setBusy(true);
     try {
-      const removed = await clearGateAutoAbsencesForDay(institution.id, actorId, today);
+      const removed = await clearGateAutoAbsencesForDay(institution.id, actorId, today, session);
       setStatusNotice(t('entry.notices.autoAbsencesCleared', { count: removed }));
       await onRefresh();
     } finally {
@@ -378,7 +394,7 @@ export function EntryScanTab({
   const handleReopen = async () => {
     setBusy(true);
     try {
-      await reopenEntryDay(institution.id, actorId, today);
+      await reopenEntryDay(institution.id, actorId, today, session);
       setStatusNotice(t('entry.notices.dayReopened'));
       await onRefresh();
     } finally {
@@ -389,7 +405,7 @@ export function EntryScanTab({
   const handleUndoClose = async () => {
     setBusy(true);
     try {
-      const removed = await undoCloseEntryDay(institution.id, actorId, today);
+      const removed = await undoCloseEntryDay(institution.id, actorId, today, session);
       setStatusNotice(t('entry.notices.closeUndone', { count: removed }));
       await onRefresh();
     } finally {
@@ -415,11 +431,57 @@ export function EntryScanTab({
 
   return (
     <div className="flex flex-col gap-5">
+      {/* Morning / Evening Period Switcher */}
+      <section className="flex flex-col gap-2 rounded-2xl bg-white p-3.5 shadow-sm ring-1 ring-neutral-200">
+        <span className="text-xs font-semibold text-neutral-600">{t('entry.sessions.switchLabel')}</span>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => onSessionChange('morning')}
+            className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-3.5 py-2 text-start transition ${
+              session === 'morning'
+                ? 'border-primary-500 bg-primary-50 text-primary-900 ring-2 ring-primary-200'
+                : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
+            }`}
+          >
+            <span className="flex items-center gap-2 text-sm font-bold">
+              <Sun className={`size-4 shrink-0 ${session === 'morning' ? 'text-primary-700' : 'text-neutral-500'}`} aria-hidden />
+              <span>{t('entry.sessions.morning')}</span>
+            </span>
+            <span className="font-mono text-xs font-semibold tabular-nums" dir="ltr">
+              {settings.startTime}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSessionChange('evening')}
+            className={`flex min-h-12 items-center justify-between gap-2 rounded-xl border px-3.5 py-2 text-start transition ${
+              session === 'evening'
+                ? 'border-indigo-500 bg-indigo-50 text-indigo-950 ring-2 ring-indigo-200'
+                : 'border-neutral-200 bg-neutral-50 text-neutral-700 hover:bg-neutral-100'
+            }`}
+          >
+            <span className="flex items-center gap-2 text-sm font-bold">
+              <Moon className={`size-4 shrink-0 ${session === 'evening' ? 'text-indigo-700' : 'text-neutral-500'}`} aria-hidden />
+              <span>{t('entry.sessions.evening')}</span>
+            </span>
+            <span className="font-mono text-xs font-semibold tabular-nums" dir="ltr">
+              {settings.eveningStartTime}
+            </span>
+          </button>
+        </div>
+      </section>
+
       {/* Huge live counter + progress bar + mini counters */}
       <section className="flex flex-col gap-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-neutral-200">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="flex flex-col gap-1">
-            <span className="text-sm font-semibold text-neutral-500">{t('entry.scan.counterLabel')}</span>
+            <span className="text-sm font-semibold text-neutral-500">
+              {session === 'evening'
+                ? t('entry.scan.counterLabelEvening')
+                : t('entry.scan.counterLabelMorning')}
+            </span>
             <div className="flex items-baseline gap-2 tabular-nums">
               <span className="text-4xl font-extrabold tracking-tight text-primary-700 sm:text-5xl">
                 {stats.entered}
@@ -875,6 +937,7 @@ export function EntryScanTab({
         institutionId={institution.id}
         actorId={actorId}
         date={today}
+        session={session}
         onClose={() => setCloseModalOpen(false)}
         onClosed={(createdAbsencesCount) => {
           setStatusNotice(t('entry.notices.dayClosed', { count: createdAbsencesCount }));

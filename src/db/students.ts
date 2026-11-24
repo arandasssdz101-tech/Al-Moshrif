@@ -1,3 +1,4 @@
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import { DomainError } from '@/utils/errors';
 import { db } from './database';
 import { listClasses } from './classes';
@@ -26,13 +27,17 @@ export async function loadStudentWorkspace(institutionId: string, actorId: strin
 async function listActiveStudents(institutionId: string): Promise<Student[]> {
   const students = await db.students.where('institutionId').equals(institutionId).toArray();
   return students
-    .filter((student) => student.deletedAt === null)
-    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+    .filter((student) => student.deletedAt == null)
+    .sort(
+      (a, b) =>
+        (a.lastName ?? '').localeCompare(b.lastName ?? '') ||
+        (a.firstName ?? '').localeCompare(b.firstName ?? ''),
+    );
 }
 
 async function getActiveStudent(studentId: string): Promise<Student> {
   const student = await db.students.get(studentId);
-  if (!student || student.deletedAt !== null) {
+  if (!student || student.deletedAt != null) {
     throw new DomainError('errors.notFound');
   }
   return student;
@@ -45,7 +50,7 @@ function assertValidInput(input: StudentInput): void {
 
 async function assertClassIsActive(classId: string): Promise<void> {
   const schoolClass = await db.classes.get(classId);
-  if (!schoolClass || schoolClass.deletedAt !== null) {
+  if (!schoolClass || schoolClass.deletedAt != null) {
     throw new DomainError('validation.classNotFound');
   }
 }
@@ -75,6 +80,7 @@ export async function createStudent(institutionId: string, rawInput: StudentInpu
   await assertNoDuplicateCardCode(institutionId, input.cardCode, null);
   const record: Student = { ...newBaseFields(institutionId, actorId), ...input };
   await db.students.add(record);
+  emitAppDataChanged(['students'], { reason: 'create-student' });
   return record;
 }
 
@@ -89,12 +95,14 @@ export async function updateStudent(studentId: string, rawInput: StudentInput, a
   await assertNoDuplicate(student.institutionId, input, studentId);
   await assertNoDuplicateCardCode(student.institutionId, input.cardCode, studentId);
   await db.students.put({ ...student, ...input, ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'update-student' });
 }
 
 export async function deleteStudent(studentId: string, actorId: string): Promise<void> {
   const student = await getActiveStudent(studentId);
   assertCanEditClassIn(await getStudentAccess(actorId), student.classId);
   await db.students.put({ ...student, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'delete-student' });
 }
 
 export async function restoreStudent(studentId: string, actorId: string): Promise<void> {
@@ -104,6 +112,7 @@ export async function restoreStudent(studentId: string, actorId: string): Promis
   await assertClassIsActive(student.classId);
   await assertNoDuplicate(student.institutionId, student, studentId);
   await db.students.put({ ...student, deletedAt: null, ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'restore-student' });
 }
 
 export async function importStudents(institutionId: string, rows: StudentInput[], actorId: string): Promise<number> {
@@ -125,7 +134,10 @@ export async function importStudents(institutionId: string, rows: StudentInput[]
     records.push({ ...newBaseFields(institutionId, actorId), ...row });
   }
 
-  if (records.length > 0) await db.students.bulkAdd(records);
+  if (records.length > 0) {
+    await db.students.bulkAdd(records);
+    emitAppDataChanged(['students'], { reason: 'import-students' });
+  }
   return records.length;
 }
 
@@ -180,7 +192,7 @@ export async function importStudentsWithMode(
   for (const student of allActive) {
     if (deletedIds.has(student.id)) continue;
     const override = updatedById.get(student.id);
-    const code = (override ? override.cardCode : student.cardCode)?.trim();
+    const code = (override ? override.cardCode?.trim() || student.cardCode : student.cardCode)?.trim();
     if (code) {
       if (finalCardCodes.has(code)) throw new DomainError('students.cardCode.duplicate');
       finalCardCodes.add(code);
@@ -199,6 +211,8 @@ export async function importStudentsWithMode(
     ...plan.toUpdate.map(({ existing, input }) => ({
       ...existing,
       ...input,
+      // Never wipe an existing student's cardCode if the re-imported file omits it
+      cardCode: input.cardCode?.trim() || existing.cardCode?.trim() || null,
       ...touchFields(actorId),
     })),
     ...plan.toDelete.map((student) => ({
@@ -217,6 +231,7 @@ export async function importStudentsWithMode(
     if (toPut.length > 0) await db.students.bulkPut(toPut);
     if (toAddRecords.length > 0) await db.students.bulkAdd(toAddRecords);
   });
+  emitAppDataChanged(['students'], { reason: 'import-students-mode' });
 
   return {
     added: toAddRecords.length,
@@ -232,12 +247,14 @@ export async function setStudentCardCode(studentId: string, cardCode: string, ac
   const code = cardCode.trim();
   await assertNoDuplicateCardCode(student.institutionId, code, studentId);
   await db.students.put({ ...student, cardCode: code, ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'student-card-code' });
 }
 
 export async function updateStudentBoarding(studentId: string, boardingStatus: 'half-boarder' | 'external', actorId: string): Promise<void> {
   const student = await getActiveStudent(studentId);
   assertCanEditClassIn(await getStudentAccess(actorId), student.classId);
   await db.students.put({ ...student, boardingStatus, ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'student-boarding' });
 }
 
 export interface HbUpsertRow {
@@ -330,6 +347,10 @@ export async function upsertHalfBoarders(
     } catch {
       continue;
     }
+  }
+
+  if (created > 0 || updated > 0 || convertedToExternal > 0) {
+    emitAppDataChanged(['students'], { reason: 'upsert-half-boarders' });
   }
 
   return { created, updated, convertedToExternal };

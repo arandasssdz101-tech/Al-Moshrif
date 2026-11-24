@@ -50,6 +50,7 @@ export interface SupervisorBackupReferences {
 export interface SupervisorBackupPackage {
   format: typeof SUPERVISOR_BACKUP_FORMAT;
   version: number;
+  cardVersion?: number;
   exportedAt: string;
   institutionId: string;
   institutionName: string;
@@ -67,6 +68,7 @@ export interface SupervisorBackupPackage {
 export interface ConsolidatedInstitutionPackage {
   format: typeof CONSOLIDATED_PACKAGE_FORMAT;
   version: number;
+  cardVersion?: number;
   exportedAt: string;
   institutionId: string;
   institutionName: string;

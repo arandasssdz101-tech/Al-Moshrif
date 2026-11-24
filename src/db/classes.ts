@@ -1,3 +1,4 @@
+import { emitAppDataChanged } from '@/utils/dataEvents';
 import { DomainError } from '@/utils/errors';
 import { guessClassLevel, CLASS_LEVELS } from '@/utils/classLevel';
 import { normalizeText } from '@/utils/text';
@@ -12,13 +13,13 @@ export const CLASS_NAME_MAX_LENGTH = 40;
 export async function listClasses(institutionId: string): Promise<SchoolClass[]> {
   const classes = await db.classes.where('institutionId').equals(institutionId).toArray();
   return classes
-    .filter((item) => item.deletedAt === null)
+    .filter((item) => item.deletedAt == null)
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
 export async function getActiveClass(classId: string): Promise<SchoolClass> {
   const schoolClass = await db.classes.get(classId);
-  if (!schoolClass || schoolClass.deletedAt !== null) {
+  if (!schoolClass || schoolClass.deletedAt != null) {
     throw new DomainError('errors.notFound');
   }
   return schoolClass;
@@ -35,7 +36,7 @@ async function assertClassNameAvailable(institutionId: string, name: string, exc
   const key = normalizeText(name);
   const classes = await db.classes.where('institutionId').equals(institutionId).toArray();
   const taken = classes.some(
-    (item) => item.deletedAt === null && item.id !== exceptId && normalizeText(item.name) === key,
+    (item) => item.deletedAt == null && item.id !== exceptId && normalizeText(item.name) === key,
   );
   if (taken) {
     throw new DomainError('validation.classDuplicate');
@@ -48,6 +49,7 @@ export async function createClass(institutionId: string, name: string, actorId: 
   await assertClassNameAvailable(institutionId, cleanName, null);
   const record: SchoolClass = { ...newBaseFields(institutionId, actorId), name: cleanName, level: guessClassLevel(cleanName) };
   await db.classes.add(record);
+  emitAppDataChanged(['students'], { reason: 'create-class' });
   return record;
 }
 
@@ -65,6 +67,7 @@ export async function renameClass(
   }
   await assertClassNameAvailable(schoolClass.institutionId, cleanName, classId);
   await db.classes.put({ ...schoolClass, name: cleanName, level, ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'rename-class' });
 }
 
 export async function deleteClass(classId: string, actorId: string): Promise<void> {
@@ -73,12 +76,13 @@ export async function deleteClass(classId: string, actorId: string): Promise<voi
   const activeStudents = await db.students
     .where('classId')
     .equals(classId)
-    .filter((student) => student.deletedAt === null)
+    .filter((student) => student.deletedAt == null)
     .count();
   if (activeStudents > 0) {
     throw new DomainError('classes.errors.hasStudents');
   }
   await db.classes.put({ ...schoolClass, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'delete-class' });
 }
 
 export async function restoreClass(classId: string, actorId: string): Promise<void> {
@@ -87,4 +91,5 @@ export async function restoreClass(classId: string, actorId: string): Promise<vo
   if (!schoolClass) throw new DomainError('errors.notFound');
   await assertClassNameAvailable(schoolClass.institutionId, schoolClass.name, classId);
   await db.classes.put({ ...schoolClass, deletedAt: null, ...touchFields(actorId) });
+  emitAppDataChanged(['students'], { reason: 'restore-class' });
 }

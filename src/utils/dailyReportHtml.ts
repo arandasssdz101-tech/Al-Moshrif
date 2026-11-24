@@ -2,6 +2,7 @@ import type { BoardingStatus, ParentCorrespondenceRow, SupervisorAbsenceRow, Tea
 import type { StudentDayAbsence } from '@/utils/dailyPage1';
 import type { Page2Computed } from '@/utils/dailyPage2';
 import { absenceRate, formatRate } from '@/utils/dailyReportStats';
+import { paginateDailyReportNotes, type PageNotesSlice } from '@/utils/dailyReportNotes';
 
 export interface DailyReportHeader {
   wilaya: string;
@@ -582,7 +583,7 @@ function renderBottomSplit(render: DailyReportRender): string {
 </div>`;
 }
 
-function renderNotesAndSignatures(render: DailyReportRender): string {
+function renderNotesAndSignatures(notes: PageNotesSlice): string {
   return `<table class="dr-notes-table">
   <colgroup>
     <col style="width:22%">
@@ -590,14 +591,14 @@ function renderNotesAndSignatures(render: DailyReportRender): string {
     <col style="width:20%">
   </colgroup>
   <tbody>
-    <tr class="dr-editable" data-edit="counselor" style="height:26mm">
+    <tr class="dr-editable" data-edit="counselor" style="height:20mm">
       <td class="dr-notes-label">ملاحظات حول النظافة<br/>الصيانة والإتلاف - الحوادث<br/>- النشاط الثقافي والرياضي -<br/>دروس الدعم - الزيارات</td>
-      <td class="dr-notes-body">${render.counselorNotes ? esc(render.counselorNotes) : '&nbsp;'}</td>
+      <td class="dr-notes-body">${notes.counselor ? esc(notes.counselor) : '&nbsp;'}</td>
       <td class="dr-notes-sign">امضاء الناظر</td>
     </tr>
     <tr class="dr-editable" data-edit="director" style="height:10mm">
       <td class="dr-notes-label">ملاحظات مدير المؤسسة</td>
-      <td class="dr-notes-body">${render.directorNotes ? esc(render.directorNotes) : '&nbsp;'}</td>
+      <td class="dr-notes-body">${notes.director ? esc(notes.director) : '&nbsp;'}</td>
       <td class="dr-notes-sign">امضاء المدير</td>
     </tr>
   </tbody>
@@ -664,7 +665,9 @@ function renderParentsTable(rows: ParentCorrespondenceRow[]): string {
 </div>`;
 }
 
-function renderPage2Notes(render: DailyReportRender): string {
+function renderPage2Notes(notes: PageNotesSlice): string {
+  const hasOverflow = Boolean(notes.counselor || notes.director);
+  const directorMinHeight = hasOverflow ? '14mm' : '36mm';
   return `<table class="dr-notes-table" style="margin-top:0">
   <colgroup>
     <col style="width:20%">
@@ -674,39 +677,100 @@ function renderPage2Notes(render: DailyReportRender): string {
   <tbody>
     <tr class="dr-editable" data-edit="counselor" style="height:24mm">
       <td class="dr-notes-label">ملاحظات و اقتراحات<br/>مستشار التربية حول النظافة -<br/>الصيانة والإتلاف - الحوادث<br/>- النشاط الثقافي والرياضي -<br/>دروس الدعم - الزيارات</td>
-      <td class="dr-notes-body">${render.counselorNotes ? esc(render.counselorNotes) : '&nbsp;'}</td>
+      <td class="dr-notes-body">${notes.counselor ? esc(notes.counselor) : '&nbsp;'}</td>
       <td class="dr-notes-sign">الامضاء</td>
     </tr>
-    <tr class="dr-editable" data-edit="director" style="height:36mm">
+    <tr class="dr-editable" data-edit="director" style="height:${directorMinHeight}">
       <td class="dr-notes-label">ملاحظات مدير المؤسسة</td>
-      <td class="dr-notes-body">${render.directorNotes ? esc(render.directorNotes) : '&nbsp;'}</td>
+      <td class="dr-notes-body">${notes.director ? esc(notes.director) : '&nbsp;'}</td>
       <td class="dr-notes-sign">الامضاء</td>
     </tr>
   </tbody>
 </table>`;
 }
 
-function buildPage2Html(render: DailyReportRender): string[] {
+function renderContinuationNotesPage(
+  render: DailyReportRender,
+  notes: PageNotesSlice,
+  extraIndex: number,
+  extraTotal: number,
+  footer: string,
+): string {
+  const suffix = extraTotal > 1 ? ` (${extraIndex + 1}/${extraTotal})` : '';
+  const rows: string[] = [];
+  if (notes.counselor) {
+    rows.push(`<tr class="dr-editable" data-edit="counselor" style="height:36mm">
+      <td class="dr-notes-label">ملاحظات و اقتراحات<br/>مستشار التربية<br/>(تابع)</td>
+      <td class="dr-notes-body">${esc(notes.counselor)}</td>
+      <td class="dr-notes-sign">الامضاء</td>
+    </tr>`);
+  }
+  if (notes.director) {
+    rows.push(`<tr class="dr-editable" data-edit="director" style="height:36mm">
+      <td class="dr-notes-label">ملاحظات مدير المؤسسة<br/>(تابع)</td>
+      <td class="dr-notes-body">${esc(notes.director)}</td>
+      <td class="dr-notes-sign">الامضاء</td>
+    </tr>`);
+  }
+
+  return `<section class="dr-page dr-page-2">
+  <div class="dr-top-head" style="margin-bottom:2mm">
+    <div class="dr-top-right">
+      <div>المؤسسة : ${esc(render.header.institution)}</div>
+      <div>التقرير اليومي للناظر — الرقم: ${esc(render.header.reportNumber)}</div>
+    </div>
+    <div class="dr-top-left">
+      <div>ليوم: ${esc(formatDate(render.header.reportDate))}</div>
+    </div>
+  </div>
+  <div class="dr-p2-heading">تابع التقرير اليومي — تتمة ملاحظات الصفحة الثانية${esc(suffix)}</div>
+  <table class="dr-notes-table" style="margin-top:1mm">
+    <colgroup>
+      <col style="width:20%">
+      <col style="width:60%">
+      <col style="width:20%">
+    </colgroup>
+    <tbody>
+      ${rows.join('\n      ')}
+    </tbody>
+  </table>
+  ${footer}
+</section>`;
+}
+
+function buildPage2Html(
+  render: DailyReportRender,
+  page2Notes: PageNotesSlice,
+  extraPages: PageNotesSlice[],
+): string[] {
   const title = '<div class="dr-p2-heading">التلاميذ الغائبون إلى نهاية اليوم : (يسجل التلاميذ المتغيبين لمدة يوم أو أكثر فقط)</div>';
   const blockCount = Math.max(1, Math.ceil(render.wholeDayAbsences.length / WHOLE_BLOCK_SIZE));
   const footer = `<div class="dr-p2-footer">${esc(footerText(render.header.city, render.header.reportDate))}</div>`;
 
-  return Array.from({ length: blockCount }, (_, block) => {
-    const wholeTable = renderWholeDayTable(render.wholeDayAbsences, block * WHOLE_BLOCK_SIZE);
-    if (block > 0) {
-      return `<section class="dr-page dr-page-2">${title}${wholeTable}${footer}</section>`;
-    }
-    return `<section class="dr-page dr-page-2">
+  const pages: string[] = [];
+  const firstWholeTable = renderWholeDayTable(render.wholeDayAbsences, 0);
+  pages.push(`<section class="dr-page dr-page-2">
 ${title}
-${wholeTable}
+${firstWholeTable}
 ${renderParentsTable(render.parentRows)}
-${renderPage2Notes(render)}
+${renderPage2Notes(page2Notes)}
 ${footer}
-</section>`;
+</section>`);
+
+  extraPages.forEach((extraSlice, index) => {
+    pages.push(renderContinuationNotesPage(render, extraSlice, index, extraPages.length, footer));
   });
+
+  for (let block = 1; block < blockCount; block += 1) {
+    const wholeTable = renderWholeDayTable(render.wholeDayAbsences, block * WHOLE_BLOCK_SIZE);
+    pages.push(`<section class="dr-page dr-page-2">${title}${wholeTable}${footer}</section>`);
+  }
+
+  return pages;
 }
 
 export function buildDailyReportHtml(render: DailyReportRender): string[] {
+  const paginatedNotes = paginateDailyReportNotes(render);
   const page1 = `<section class="dr-page">
 ${renderHeader(render)}
 ${renderTeachersTable(render)}
@@ -714,7 +778,7 @@ ${renderObservationsBox(render)}
 ${renderCanteenSection(render)}
 ${renderLevelsSection(render)}
 ${renderBottomSplit(render)}
-${renderNotesAndSignatures(render)}
+${renderNotesAndSignatures(paginatedNotes.page1)}
 </section>`;
-  return [page1, ...buildPage2Html(render)];
+  return [page1, ...buildPage2Html(render, paginatedNotes.page2, paginatedNotes.extraPages)];
 }

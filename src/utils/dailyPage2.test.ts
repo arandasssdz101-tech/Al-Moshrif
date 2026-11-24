@@ -368,4 +368,55 @@ describe('computePage2 canteen from scans', () => {
     const result = computePage2(input({ students, studentAbsences: [], canteenEntries: [otherDay] }));
     expect(result.canteen).toMatchObject({ halfBoarders: 2, absent: 2, source: 'calculated' });
   });
+
+  it('uses manual canteenEnteredCount when card scanning stopped and computes absent half-boarders', () => {
+    const allStudents = [boarder('b1'), boarder('b2'), boarder('b3'), student('s4', 'female')];
+    const result = computePage2(
+      input({
+        students: allStudents,
+        studentAbsences: [],
+        canteenEntries: [],
+        canteenEnteredCount: 2,
+      }),
+    );
+    expect(result.canteen).toMatchObject({
+      halfBoarders: 3,
+      present: 2,
+      absent: 1,
+      source: 'manual',
+    });
+  });
+
+  it('prefers manual canteenEnteredCount over partial scans and prevents negative absent counts', () => {
+    const allStudents = [boarder('b1'), boarder('b2'), boarder('b3')];
+    const overEntered = computePage2(
+      input({
+        students: allStudents,
+        studentAbsences: [],
+        canteenEntries: [scan('b1', 'accepted')],
+        canteenEnteredCount: 4,
+      }),
+    );
+    expect(overEntered.canteen).toMatchObject({
+      halfBoarders: 3,
+      present: 4,
+      absent: 0,
+      source: 'manual',
+    });
+
+    const zeroEntered = computePage2(
+      input({
+        students: allStudents,
+        studentAbsences: [],
+        canteenEntries: [scan('b1', 'accepted')],
+        canteenEnteredCount: 0,
+      }),
+    );
+    expect(zeroEntered.canteen).toMatchObject({
+      halfBoarders: 3,
+      present: 0,
+      absent: 3,
+      source: 'manual',
+    });
+  });
 });

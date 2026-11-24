@@ -1,7 +1,12 @@
 import type { GateEntry, SchoolClass, Student, StudentAbsence } from '@/db/types';
 import { isEnrolledOn } from '@/utils/absenceReports';
 import { classLessonsForDay, weekdayOfDate, type LessonSlot } from '@/utils/absences';
-import { acceptedEntryByStudent, computeLateMissedPeriods } from '@/utils/entry';
+import {
+  acceptedEntryByStudent,
+  computeLateMissedPeriods,
+  isPeriodInSession,
+  resolveEntrySession,
+} from '@/utils/entry';
 
 export interface GateSyncAddition {
   studentId: string;
@@ -24,11 +29,22 @@ export function planGateEntryAbsenceSync(input: {
   date: string;
   students: Pick<Student, 'id' | 'classId' | 'joinDate' | 'leaveDate' | 'deletedAt'>[];
   slots: LessonSlot[];
-  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[];
+  entries: Pick<GateEntry, 'studentId' | 'date' | 'time' | 'session' | 'result' | 'late' | 'minutesLate' | 'deletedAt'>[];
   existingAbsences: Pick<StudentAbsence, 'id' | 'studentId' | 'classId' | 'date' | 'period' | 'source' | 'status' | 'deletedAt'>[];
   markLateMissedLessons: boolean;
+  eveningStartTime?: string;
 }): GateEntryAbsenceSyncPlan {
-  const acceptedMap = acceptedEntryByStudent(input.entries, input.date);
+  const acceptedMap = acceptedEntryByStudent(input.entries, input.date, undefined, input.eveningStartTime);
+  const morningAcceptedMap = acceptedEntryByStudent(input.entries, input.date, 'morning', input.eveningStartTime);
+  const eveningAcceptedMap = acceptedEntryByStudent(input.entries, input.date, 'evening', input.eveningStartTime);
+  const hasEveningSessionActivity = input.entries.some(
+    (entry) =>
+      entry.deletedAt === null &&
+      entry.date === input.date &&
+      entry.result === 'accepted' &&
+      resolveEntrySession(entry, input.eveningStartTime) === 'evening',
+  );
+
   const enrolledStudents = input.students.filter(
     (student) => student.deletedAt === null && isEnrolledOn(student, input.date),
   );
@@ -69,7 +85,50 @@ export function planGateEntryAbsenceSync(input: {
     const lessons = getLessons(student.classId);
 
     let desiredPeriods: { period: number; subject: string }[] = [];
-    if (!accepted) {
+    if (hasEveningSessionActivity) {
+      const morningEntry = morningAcceptedMap.get(student.id);
+      const eveningEntry = eveningAcceptedMap.get(student.id);
+      if (morningEntry || eveningEntry) {
+        enteredCount += 1;
+        if (morningEntry?.late || eveningEntry?.late) {
+          lateCount += 1;
+        }
+      }
+      const morningLessons = lessons.filter((lesson) =>
+        isPeriodInSession(lesson.period, 'morning', input.eveningStartTime),
+      );
+      const eveningLessons = lessons.filter((lesson) =>
+        isPeriodInSession(lesson.period, 'evening', input.eveningStartTime),
+      );
+      if (!morningEntry) {
+        desiredPeriods.push(...morningLessons);
+      } else if (input.markLateMissedLessons && morningEntry.late) {
+        desiredPeriods.push(
+          ...computeLateMissedPeriods(
+            student.classId,
+            input.date,
+            morningEntry.time,
+            input.slots,
+            'morning',
+            input.eveningStartTime,
+          ).map((item) => ({ period: item.period, subject: item.subject || '—' })),
+        );
+      }
+      if (!eveningEntry) {
+        desiredPeriods.push(...eveningLessons);
+      } else if (input.markLateMissedLessons && eveningEntry.late) {
+        desiredPeriods.push(
+          ...computeLateMissedPeriods(
+            student.classId,
+            input.date,
+            eveningEntry.time,
+            input.slots,
+            'evening',
+            input.eveningStartTime,
+          ).map((item) => ({ period: item.period, subject: item.subject || '—' })),
+        );
+      }
+    } else if (!accepted) {
       desiredPeriods = lessons;
     } else {
       enteredCount += 1;

@@ -1,3 +1,7 @@
+import { emitAppDataChanged } from '@/utils/dataEvents';
+import { DomainError } from '@/utils/errors';
+import { schoolYearForDate } from '@/utils/schoolYear';
+import { getModuleAccess } from './access';
 import { db } from './database';
 import { assertHeadActor } from './users';
 import type { DailyReportRecord, ParentCorrespondenceRow, SupervisorAbsenceRow } from './types';
@@ -12,10 +16,20 @@ export type DailyReportInput = {
   canteenNote: string;
   mealServed: string;
   plannedMeal: string;
+  canteenEnteredCount?: number | null;
   canteenSupervisors: string[];
   supervisorRows: SupervisorAbsenceRow[];
   teacherNotes: Record<string, string>;
 };
+
+export interface CanteenDailyInfoPatch {
+  mealServed?: string;
+  plannedMeal?: string;
+  canteenNote?: string;
+  canteenEnteredCount?: number | null;
+  canteenSupervisors?: string[];
+  supervisorRows?: SupervisorAbsenceRow[];
+}
 
 export function dailyReportId(institutionId: string, date: string): string {
   return `${institutionId}|${date}`;
@@ -34,38 +48,43 @@ export async function saveDailyReport(
   await assertHeadActor(actorId);
   await db.dailyReports.put({
     ...input,
+    canteenEnteredCount: input.canteenEnteredCount ?? null,
     id: dailyReportId(institutionId, date),
     institutionId,
     date,
     updatedAt: new Date().toISOString(),
   });
+  emitAppDataChanged(['dailyReports', 'canteen'], { date, reason: 'save-daily-report' });
 }
 
 export async function saveCanteenDailyInfo(
   institutionId: string,
   date: string,
-  patch: { mealServed?: string; plannedMeal?: string; canteenNote?: string; supervisorRows?: SupervisorAbsenceRow[] },
+  patch: CanteenDailyInfoPatch,
   actorId: string,
 ): Promise<void> {
-  await assertHeadActor(actorId);
+  const access = await getModuleAccess(actorId, 'canteen');
+  if (!access.isHead && !access.canEdit) {
+    throw new DomainError('errors.notAuthorized');
+  }
   const id = dailyReportId(institutionId, date);
   const existing = await db.dailyReports.get(id);
-  const reportNumberPrefix = '';
   const record: DailyReportRecord = existing
     ? { ...existing, ...patch, updatedAt: new Date().toISOString() }
     : {
         id,
         institutionId,
         date,
-        reportNumber: reportNumberPrefix,
-        schoolYear: '',
+        reportNumber: '',
+        schoolYear: schoolYearForDate(date),
         parentRows: [],
         counselorNotes: '',
         directorNotes: '',
-        observationsActions: '/',
+        observationsActions: '',
         canteenNote: '',
         mealServed: '',
         plannedMeal: '',
+        canteenEnteredCount: null,
         canteenSupervisors: [],
         supervisorRows: patch.supervisorRows ?? [],
         teacherNotes: {},
@@ -74,6 +93,9 @@ export async function saveCanteenDailyInfo(
   if (patch.mealServed !== undefined) record.mealServed = patch.mealServed;
   if (patch.plannedMeal !== undefined) record.plannedMeal = patch.plannedMeal;
   if (patch.canteenNote !== undefined) record.canteenNote = patch.canteenNote;
+  if (patch.canteenEnteredCount !== undefined) record.canteenEnteredCount = patch.canteenEnteredCount;
+  if (patch.canteenSupervisors !== undefined) record.canteenSupervisors = patch.canteenSupervisors;
   if (patch.supervisorRows !== undefined) record.supervisorRows = patch.supervisorRows;
   await db.dailyReports.put(record);
+  emitAppDataChanged(['dailyReports', 'canteen'], { date, reason: 'save-canteen-daily-info' });
 }

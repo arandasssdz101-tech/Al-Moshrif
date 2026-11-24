@@ -9,6 +9,7 @@ import {
   previewCloseEntryDay,
   type CloseEntryDayPreview,
 } from '@/db/entries';
+import type { EntrySession } from '@/db/types';
 import { errorKey } from '@/utils/errors';
 
 interface EntryCloseModalProps {
@@ -16,6 +17,7 @@ interface EntryCloseModalProps {
   institutionId: string;
   actorId: string;
   date: string;
+  session: EntrySession;
   onClose: () => void;
   onClosed: (createdAbsencesCount: number) => void;
 }
@@ -25,6 +27,7 @@ export function EntryCloseModal({
   institutionId,
   actorId,
   date,
+  session,
   onClose,
   onClosed,
 }: EntryCloseModalProps) {
@@ -39,7 +42,7 @@ export function EntryCloseModal({
     let active = true;
     setLoading(true);
     setError(null);
-    previewCloseEntryDay(institutionId, date)
+    previewCloseEntryDay(institutionId, date, session)
       .then((result) => {
         if (active) setPreview(result);
       })
@@ -52,13 +55,13 @@ export function EntryCloseModal({
     return () => {
       active = false;
     };
-  }, [open, institutionId, date, t]);
+  }, [open, institutionId, date, session, t]);
 
   const handleConfirm = async () => {
     setSubmitting(true);
     setError(null);
     try {
-      const { createdAbsencesCount } = await closeEntryDay(institutionId, actorId, date);
+      const { createdAbsencesCount } = await closeEntryDay(institutionId, actorId, date, session);
       onClosed(createdAbsencesCount);
       onClose();
     } catch (err) {
@@ -71,7 +74,7 @@ export function EntryCloseModal({
   return (
     <Modal
       open={open}
-      title={t('entry.closeDay.title')}
+      title={`${t('entry.closeDay.title')} — ${t(`entry.sessions.${session}`)}`}
       description={t('entry.closeDay.subtitle', { date })}
       onClose={onClose}
     >

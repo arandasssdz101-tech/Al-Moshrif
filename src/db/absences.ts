@@ -5,7 +5,7 @@ import { todayIso } from '@/utils/dates';
 import { emitAppDataChanged } from '@/utils/dataEvents';
 import { getEntrySettings } from '@/utils/entry';
 import { planGateEntryAbsenceSync } from '@/utils/gateAbsenceSync';
-import { assertCanEditClassIn, canAccessClass, getModuleAccess, type StudentAccess } from './access';
+import { assertCanEditClassIn, canAccessClass, getModuleAccess, getStudentAccess, type StudentAccess } from './access';
 import { syncContinuousAbsencesUpTo } from './continuousAbsences';
 import { db } from './database';
 import { closureIdFor, listGateEntriesForDate } from './entries';
@@ -27,6 +27,7 @@ import type {
 
 export interface AbsenceWorkspace {
   access: StudentAccess;
+  studentAccess?: StudentAccess;
   workingDays: number[];
   holidayDates: string[];
   classes: SchoolClass[];
@@ -40,7 +41,10 @@ export interface AbsenceWorkspace {
 }
 
 export async function loadAbsenceWorkspace(institutionId: string, actorId: string): Promise<AbsenceWorkspace> {
-  const access = await getModuleAccess(actorId, 'attendance');
+  const [access, studentAccess] = await Promise.all([
+    getModuleAccess(actorId, 'attendance'),
+    getStudentAccess(actorId),
+  ]);
   if (access.canEdit) {
     await syncContinuousAbsencesUpTo(institutionId, actorId, todayIso());
   }
@@ -56,36 +60,38 @@ export async function loadAbsenceWorkspace(institutionId: string, actorId: strin
       access.isHead ? db.teacherAbsences.where('institutionId').equals(institutionId).toArray() : Promise.resolve([]),
       access.isHead ? db.users.where('institutionId').equals(institutionId).toArray() : Promise.resolve([]),
     ]);
-  const visibleClassIds = new Set(
-    classes.filter((schoolClass) => schoolClass.deletedAt === null && canAccessClass(access, schoolClass.id)).map((item) => item.id),
+  const visibleClasses = classes
+    .filter((schoolClass) => schoolClass.deletedAt == null && canAccessClass(access, schoolClass.id))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  const visibleClassIds = new Set(visibleClasses.map((item) => item.id));
+  const visibleStudents = students.filter(
+    (student) => student.deletedAt == null && visibleClassIds.has(student.classId),
   );
-  const visibleStudents = students.filter((student) => student.deletedAt === null && visibleClassIds.has(student.classId));
   const visibleStudentIds = new Set(visibleStudents.map((student) => student.id));
   return {
     access,
+    studentAccess,
     workingDays: institution.workingDays,
     holidayDates: institution.holidays.map((holiday) => holiday.date),
-    classes: classes
-      .filter((schoolClass) => visibleClassIds.has(schoolClass.id))
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+    classes: visibleClasses,
     students: visibleStudents,
-    slots: slots.filter((slot) => slot.deletedAt === null && visibleClassIds.has(slot.classId)),
+    slots: slots.filter((slot) => slot.deletedAt == null && visibleClassIds.has(slot.classId)),
     studentAbsences: studentAbsences.filter(
       (record) =>
-        record.deletedAt === null &&
+        record.deletedAt == null &&
         (visibleClassIds.has(record.classId) || visibleStudentIds.has(record.studentId)),
     ),
     continuousAbsences: continuousAbsences
       .filter(
         (record) =>
-          record.deletedAt === null &&
+          record.deletedAt == null &&
           (visibleClassIds.has(record.classId) || visibleStudentIds.has(record.studentId)),
       )
       .sort((a, b) => b.startDate.localeCompare(a.startDate)),
-    teachers: teachers.filter((teacher) => teacher.deletedAt === null).sort((a, b) => a.name.localeCompare(b.name)),
-    teacherAbsences: teacherAbsences.filter((record) => record.deletedAt === null),
+    teachers: teachers.filter((teacher) => teacher.deletedAt == null).sort((a, b) => a.name.localeCompare(b.name)),
+    teacherAbsences: teacherAbsences.filter((record) => record.deletedAt == null),
     supervisors: users
-      .filter((user) => user.role === 'supervisor' && user.status === 'approved' && user.deletedAt === null)
+      .filter((user) => user.role === 'supervisor' && user.status === 'approved' && user.deletedAt == null)
       .sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
@@ -110,16 +116,16 @@ export async function saveClassDayAbsences(
 ): Promise<void> {
   assertCanEditClassIn(await getModuleAccess(actorId, 'attendance'), classId);
   const schoolClass = await db.classes.get(classId);
-  if (!schoolClass || schoolClass.deletedAt !== null) throw new DomainError('validation.classNotFound');
+  if (!schoolClass || schoolClass.deletedAt != null) throw new DomainError('validation.classNotFound');
   const institution = await getInstitution(institutionId);
   assertValidDate(date, institution.workingDays);
 
   const day = weekdayOfDate(date);
-  const slots = await db.timetableSlots.where('classId').equals(classId).filter((slot) => slot.deletedAt === null).toArray();
+  const slots = await db.timetableSlots.where('classId').equals(classId).filter((slot) => slot.deletedAt == null).toArray();
   const lessons = classLessonsForDay(slots, classId, day);
   const lessonByPeriod = new Map(lessons.map((lesson) => [lesson.period, lesson]));
 
-  const students = await db.students.where('classId').equals(classId).filter((student) => student.deletedAt === null).toArray();
+  const students = await db.students.where('classId').equals(classId).filter((student) => student.deletedAt == null).toArray();
   const studentIds = new Set(students.map((student) => student.id));
 
   const unique = new Map<string, StudentAbsenceEntry>();
@@ -135,7 +141,7 @@ export async function saveClassDayAbsences(
       .equals(institutionId)
       .filter(
         (record) =>
-          record.deletedAt === null &&
+          record.deletedAt == null &&
           record.date === date &&
           record.status !== 'late' &&
           (record.classId === classId || studentIds.has(record.studentId)),
@@ -192,14 +198,14 @@ export async function recordQuickStudentAttendance(
   }
   if (!isIsoDate(input.date)) throw new DomainError('validation.invalidDate');
   const student = await db.students.get(input.studentId);
-  if (!student || student.deletedAt !== null) throw new DomainError('errors.notFound');
+  if (!student || student.deletedAt != null) throw new DomainError('errors.notFound');
 
   const existing = await db.studentAbsences
     .where('classId')
     .equals(input.classId)
     .filter(
       (record) =>
-        record.deletedAt === null &&
+        record.deletedAt == null &&
         record.studentId === input.studentId &&
         record.date === input.date &&
         record.period === input.period,
@@ -262,13 +268,13 @@ export async function syncAbsencesWithGateEntries(
 
   const settings = getEntrySettings(institution);
   const [allStudents, allSlots, entries, existingAbsences] = await Promise.all([
-    db.students.where('institutionId').equals(institutionId).filter((s) => s.deletedAt === null).toArray(),
-    db.timetableSlots.where('institutionId').equals(institutionId).filter((t) => t.deletedAt === null).toArray(),
+    db.students.where('institutionId').equals(institutionId).filter((s) => s.deletedAt == null).toArray(),
+    db.timetableSlots.where('institutionId').equals(institutionId).filter((t) => t.deletedAt == null).toArray(),
     listGateEntriesForDate(institutionId, date),
     db.studentAbsences
       .where('institutionId')
       .equals(institutionId)
-      .filter((record) => record.deletedAt === null && record.date === date)
+      .filter((record) => record.deletedAt == null && record.date === date)
       .toArray(),
   ]);
 
@@ -286,6 +292,7 @@ export async function syncAbsencesWithGateEntries(
     entries,
     existingAbsences: accessibleAbsences,
     markLateMissedLessons: settings.markLateMissedLessons,
+    eveningStartTime: settings.eveningStartTime,
   });
 
   const now = new Date().toISOString();
@@ -386,7 +393,7 @@ export async function resetDayAbsences(
       .equals(institutionId)
       .filter(
         (record) =>
-          record.deletedAt === null &&
+          record.deletedAt == null &&
           record.date === date &&
           record.status !== 'late' &&
           record.source !== 'continuous' &&
@@ -421,7 +428,7 @@ export async function resetDayAbsences(
       const remainingGateCount = await db.studentAbsences
         .where('institutionId')
         .equals(institutionId)
-        .filter((item) => item.deletedAt === null && item.date === date && item.source === 'gate')
+        .filter((item) => item.deletedAt == null && item.date === date && item.source === 'gate')
         .count();
       const clearedAllDay =
         options.mode === 'all' && !options.classId;
