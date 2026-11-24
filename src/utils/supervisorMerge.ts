@@ -340,12 +340,12 @@ export function findRoomBookingConflict(
   incomingGroupNumber: number | null;
   existingGroupNumber: number | null;
 } | null {
-  if (incomingSlot.deletedAt !== null) return null;
+  if (incomingSlot.deletedAt != null) return null;
   const incomingRooms = extractSlotRooms(incomingSlot);
   if (incomingRooms.length === 0) return null;
 
   for (const existing of activeSlots) {
-    if (existing.deletedAt !== null) continue;
+    if (existing.deletedAt != null) continue;
     if (existing.id === incomingSlot.id) continue;
     if (existing.classId === incomingSlot.classId) continue;
     if (existing.day !== incomingSlot.day) continue;
@@ -377,7 +377,7 @@ export function computeAvailableRooms(
 ): string[] {
   const occupied = new Set<string>();
   for (const slot of activeSlots) {
-    if (slot.deletedAt !== null) continue;
+    if (slot.deletedAt != null) continue;
     if (excludeSlotId && slot.id === excludeSlotId) continue;
     if (slot.day !== day) continue;
     if (!doPeriodsOverlap(slot.period, period)) continue;
@@ -387,8 +387,8 @@ export function computeAvailableRooms(
   }
 
   return allRooms
-    .filter((room) => room.deletedAt === null && !occupied.has(room.id))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+    .filter((room) => room.deletedAt == null && !occupied.has(room.id))
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }))
     .map((room) => room.id);
 }
 
@@ -554,8 +554,8 @@ export function planSupervisorBatchMerge(input: PlanBatchMergeInput): BatchMerge
 
   // Process deletions/updates chronologically (older first, or deletions before additions) so freed rooms become available
   const candidates = Array.from(bestIncomingSlotById.values()).sort((a, b) => {
-    const aDeleted = a.slot.deletedAt !== null ? 0 : 1;
-    const bDeleted = b.slot.deletedAt !== null ? 0 : 1;
+    const aDeleted = a.slot.deletedAt != null ? 0 : 1;
+    const bDeleted = b.slot.deletedAt != null ? 0 : 1;
     if (aDeleted !== bDeleted) return aDeleted - bDeleted;
     return compareTimestamps(a.slot.updatedAt, b.slot.updatedAt);
   });

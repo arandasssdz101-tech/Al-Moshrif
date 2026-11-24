@@ -47,6 +47,7 @@ export function EntryUsbScanner({
   const azertyRef = useRef(azertyFix);
   const cooldownMsRef = useRef(cooldownSeconds * 1000);
   const seenRef = useRef<Map<string, number>>(new Map());
+  const focusTimersRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     onDetectRef.current = onDetect;
@@ -67,6 +68,13 @@ export function EntryUsbScanner({
     }
   }, []);
 
+  const clearFocusTimers = useCallback(() => {
+    for (const timer of focusTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    focusTimersRef.current.clear();
+  }, []);
+
   const focusScanner = useCallback(() => {
     if (!enabled || disabled) return;
     const input = inputRef.current;
@@ -74,6 +82,19 @@ export function EntryUsbScanner({
     input.focus({ preventScroll: true });
     setFocused(document.activeElement === input);
   }, [enabled, disabled]);
+
+  const scheduleFocus = useCallback(
+    (delayMs: number) => {
+      const timer = window.setTimeout(() => {
+        focusTimersRef.current.delete(timer);
+        if (!isInteractiveInput(document.activeElement)) {
+          focusScanner();
+        }
+      }, delayMs);
+      focusTimersRef.current.add(timer);
+    },
+    [focusScanner],
+  );
 
   const flushBuffer = useCallback(() => {
     clearIdleTimer();
@@ -87,6 +108,14 @@ export function EntryUsbScanner({
     if (!normalized) return;
 
     const now = Date.now();
+    if (seenRef.current.size > 200) {
+      const maxAge = Math.max(cooldownMsRef.current, 10_000);
+      for (const [key, ts] of seenRef.current.entries()) {
+        if (now - ts > maxAge) {
+          seenRef.current.delete(key);
+        }
+      }
+    }
     const last = seenRef.current.get(normalized);
     if (last !== undefined && now - last < cooldownMsRef.current) {
       return;
@@ -100,16 +129,11 @@ export function EntryUsbScanner({
     if (!enabled || disabled) {
       setFocused(false);
       clearIdleTimer();
+      clearFocusTimers();
       return;
     }
 
-    const focusSoon = () => {
-      window.setTimeout(() => {
-        if (!isInteractiveInput(document.activeElement)) {
-          focusScanner();
-        }
-      }, 20);
-    };
+    const focusSoon = () => scheduleFocus(20);
 
     focusSoon();
 
@@ -117,11 +141,7 @@ export function EntryUsbScanner({
     const handlePointerDown = (event: PointerEvent) => {
       if (isInteractiveInput(event.target)) return;
       // Don't hijack button clicks before they fire; refocus right after
-      window.setTimeout(() => {
-        if (!isInteractiveInput(document.activeElement)) {
-          focusScanner();
-        }
-      }, 30);
+      scheduleFocus(30);
     };
 
     window.addEventListener('focus', handleWindowFocus);
@@ -131,17 +151,14 @@ export function EntryUsbScanner({
       window.removeEventListener('focus', handleWindowFocus);
       document.removeEventListener('pointerdown', handlePointerDown);
       clearIdleTimer();
+      clearFocusTimers();
     };
-  }, [enabled, disabled, focusScanner, clearIdleTimer]);
+  }, [enabled, disabled, scheduleFocus, clearIdleTimer, clearFocusTimers]);
 
   const handleBlur = () => {
     setFocused(false);
     if (!enabled || disabled) return;
-    window.setTimeout(() => {
-      if (!isInteractiveInput(document.activeElement)) {
-        focusScanner();
-      }
-    }, 60);
+    scheduleFocus(60);
   };
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {

@@ -72,8 +72,8 @@ export function evaluateContinuousAbsenceStatus(
   referenceDate: string,
 ): ContinuousAbsenceStatus {
   const schedule = computeNoticeSchedule(record.startDate);
-  const isClosed = record.endDate !== null;
-  const effectiveDate = isClosed ? minIsoDate(referenceDate, record.endDate) : referenceDate;
+  const isClosed = record.endDate != null;
+  const effectiveDate = record.endDate != null ? minIsoDate(referenceDate, record.endDate) : referenceDate;
   const rawElapsed = diffIsoDays(record.startDate, effectiveDate);
   const daysElapsed = Math.max(0, rawElapsed);
   const dayNumber = rawElapsed < 0 ? 0 : daysElapsed + 1;
@@ -165,14 +165,14 @@ export function buildContinuousParentRows({
   absences,
   defaultReason,
 }: BuildContinuousParentRowsInput): ParentCorrespondenceRow[] {
-  const studentById = new Map(students.filter((s) => s.deletedAt === null).map((s) => [s.id, s]));
-  const classNameById = new Map(classes.filter((c) => c.deletedAt === null).map((c) => [c.id, c.name]));
+  const studentById = new Map(students.filter((s) => s.deletedAt == null).map((s) => [s.id, s]));
+  const classNameById = new Map(classes.filter((c) => c.deletedAt == null).map((c) => [c.id, c.name]));
 
   const rows: ParentCorrespondenceRow[] = [];
   const seenStudents = new Set<string>();
 
   const sorted = [...continuousAbsences]
-    .filter((item) => item.deletedAt === null)
+    .filter((item) => item.deletedAt == null)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
 
   for (const record of sorted) {
@@ -194,7 +194,7 @@ export function buildContinuousParentRows({
 
     const cumulativeHours = absences.filter(
       (item) =>
-        item.deletedAt === null &&
+        item.deletedAt == null &&
         item.status !== 'late' &&
         item.studentId === student.id &&
         item.date >= record.startDate &&

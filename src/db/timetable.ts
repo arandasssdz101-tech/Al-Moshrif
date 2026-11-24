@@ -28,19 +28,19 @@ export async function loadTimetableWorkspace(institutionId: string, actorId: str
     db.rooms.where('institutionId').equals(institutionId).toArray(),
   ]);
   const visibleClasses = classes
-    .filter((schoolClass) => schoolClass.deletedAt === null && canAccessClass(access, schoolClass.id))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    .filter((schoolClass) => schoolClass.deletedAt == null && canAccessClass(access, schoolClass.id))
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }));
   const visibleClassIds = new Set(visibleClasses.map((schoolClass) => schoolClass.id));
   return {
     access,
     classes: visibleClasses,
-    slots: slots.filter((slot) => slot.deletedAt === null && visibleClassIds.has(slot.classId)),
+    slots: slots.filter((slot) => slot.deletedAt == null && visibleClassIds.has(slot.classId)),
     teachers: teachers
-      .filter((teacher) => teacher.deletedAt === null)
-      .sort((a, b) => a.name.localeCompare(b.name)),
+      .filter((teacher) => teacher.deletedAt == null)
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
     rooms: rooms
-      .filter((room) => room.deletedAt === null)
-      .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true })),
+      .filter((room) => room.deletedAt == null)
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true })),
   };
 }
 
@@ -76,15 +76,15 @@ function normalizeSlot(input: TimetableSlotInput): TimetableSlotInput {
 
 async function assertActiveReferences(input: TimetableSlotInput): Promise<void> {
   const schoolClass = await db.classes.get(input.classId);
-  if (!schoolClass || schoolClass.deletedAt !== null) throw new DomainError('validation.classNotFound');
+  if (!schoolClass || schoolClass.deletedAt != null) throw new DomainError('validation.classNotFound');
   for (const lesson of slotLessons(input)) {
     if (lesson.teacherId) {
       const teacher = await db.teachers.get(lesson.teacherId);
-      if (!teacher || teacher.deletedAt !== null) throw new DomainError('teachers.errors.notFound');
+      if (!teacher || teacher.deletedAt != null) throw new DomainError('teachers.errors.notFound');
     }
     if (lesson.roomId) {
       const room = await db.rooms.get(lesson.roomId);
-      if (!room || room.deletedAt !== null) throw new DomainError('rooms.errors.notFound');
+      if (!room || room.deletedAt != null) throw new DomainError('rooms.errors.notFound');
     }
   }
 }
@@ -93,7 +93,7 @@ async function writeSlot(institutionId: string, actorId: string, input: Timetabl
   const existing = await db.timetableSlots
     .where('classId')
     .equals(input.classId)
-    .filter((slot) => slot.deletedAt === null && slot.day === input.day && slot.period === input.period)
+    .filter((slot) => slot.deletedAt == null && slot.day === input.day && slot.period === input.period)
     .first();
 
   if (existing) {
@@ -140,7 +140,7 @@ export async function importTimetableSlots(
 
 export async function clearTimetableSlot(slotId: string, actorId: string): Promise<void> {
   const slot = await db.timetableSlots.get(slotId);
-  if (!slot || slot.deletedAt !== null) throw new DomainError('errors.notFound');
+  if (!slot || slot.deletedAt != null) throw new DomainError('errors.notFound');
   assertCanEditClassIn(await getModuleAccess(actorId, 'timetable'), slot.classId);
   await db.timetableSlots.put({ ...slot, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
 }
@@ -152,7 +152,7 @@ export async function restoreTimetableSlot(slotId: string, actorId: string): Pro
   const taken = await db.timetableSlots
     .where('classId')
     .equals(slot.classId)
-    .filter((item) => item.deletedAt === null && item.day === slot.day && item.period === slot.period)
+    .filter((item) => item.deletedAt == null && item.day === slot.day && item.period === slot.period)
     .count();
   if (taken > 0) throw new DomainError('timetable.errors.slotTaken');
   await db.timetableSlots.put({ ...slot, deletedAt: null, ...touchFields(actorId) });

@@ -95,6 +95,15 @@ export function StudentAbsencesView({
   const [scanError, setScanError] = useState<string | null>(null);
   const [scanVersion, setScanVersion] = useState(0);
   const scanInputRef = useRef<HTMLInputElement | null>(null);
+  const manualFocusTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (manualFocusTimerRef.current !== null) {
+        window.clearTimeout(manualFocusTimerRef.current);
+      }
+    };
+  }, []);
 
   const cardAbsenceEnabled = isCardAbsenceEnabled(institution);
   const activeClassId = data.classes.some((item) => item.id === selectedClassId) ? selectedClassId : (data.classes[0]?.id ?? null);
@@ -381,7 +390,13 @@ export function StudentAbsencesView({
           onDetect={(code) => void handleScanAbsence(code)}
           onManual={() => {
             setCameraOpen(false);
-            setTimeout(() => scanInputRef.current?.focus(), 50);
+            if (manualFocusTimerRef.current !== null) {
+              window.clearTimeout(manualFocusTimerRef.current);
+            }
+            manualFocusTimerRef.current = window.setTimeout(() => {
+              manualFocusTimerRef.current = null;
+              scanInputRef.current?.focus();
+            }, 50);
           }}
           onClose={() => setCameraOpen(false)}
         />
@@ -424,6 +439,8 @@ function ClassDayEditor({
   const [justSaved, setJustSaved] = useState(false);
   const longPressTimer = useRef<number | null>(null);
   const longPressTriggered = useRef(false);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
 
   const incomingSnapshot = snapshot([...toDraft(records).values()]);
   useEffect(() => {
@@ -467,20 +484,23 @@ function ClassDayEditor({
       if (entry) next.set(key, { ...entry, justified: !entry.justified });
     });
 
+  const cancelPress = () => {
+    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+
+  useEffect(() => () => cancelPress(), []);
+
   const startPress = (studentId: string, period: number) => {
     if (!canEdit) return;
+    cancelPress();
     longPressTriggered.current = false;
     longPressTimer.current = window.setTimeout(() => {
-      const entry = draft.get(draftKey(studentId, period));
+      const entry = draftRef.current.get(draftKey(studentId, period));
       if (!entry) return;
       longPressTriggered.current = true;
       toggleJustified(studentId, period);
     }, 550);
-  };
-
-  const cancelPress = () => {
-    if (longPressTimer.current !== null) window.clearTimeout(longPressTimer.current);
-    longPressTimer.current = null;
   };
 
   const finishPress = (studentId: string, period: number) => {

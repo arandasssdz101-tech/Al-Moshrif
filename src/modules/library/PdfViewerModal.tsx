@@ -95,6 +95,10 @@ export function PdfViewerModal({
   onSaveProgressRef.current = onSaveProgress;
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const jumpOpenRef = useRef(jumpOpen);
+  jumpOpenRef.current = jumpOpen;
+  const menuOpenRef = useRef(menuOpen);
+  menuOpenRef.current = menuOpen;
 
   // Lock body scroll & listen to Escape + Capacitor Android back button
   useEffect(() => {
@@ -103,19 +107,19 @@ export function PdfViewerModal({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (jumpOpen) setJumpOpen(false);
-        else if (menuOpen) setMenuOpen(false);
+        if (jumpOpenRef.current) setJumpOpen(false);
+        else if (menuOpenRef.current) setMenuOpen(false);
         else onCloseRef.current();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
 
     const removeBackHandler = registerAndroidBackHandler(() => {
-      if (jumpOpen) {
+      if (jumpOpenRef.current) {
         setJumpOpen(false);
         return true;
       }
-      if (menuOpen) {
+      if (menuOpenRef.current) {
         setMenuOpen(false);
         return true;
       }
@@ -128,7 +132,7 @@ export function PdfViewerModal({
       window.removeEventListener('keydown', handleKeyDown);
       removeBackHandler();
     };
-  }, [jumpOpen, menuOpen]);
+  }, []);
 
   // Measure available width for fit-to-width calculation
   useEffect(() => {

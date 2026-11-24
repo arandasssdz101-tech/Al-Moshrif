@@ -20,8 +20,8 @@ function sameAssignment(a: TeacherAssignment, classId: string, subject: string):
 export async function listTeachers(institutionId: string): Promise<Teacher[]> {
   const teachers = await db.teachers.where('institutionId').equals(institutionId).toArray();
   return teachers
-    .filter((teacher) => teacher.deletedAt === null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .filter((teacher) => teacher.deletedAt == null)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
 }
 
 export async function createTeacher(institutionId: string, rawName: string, actorId: string): Promise<Teacher> {
@@ -34,11 +34,11 @@ export async function createTeacher(institutionId: string, rawName: string, acto
 export async function deleteTeacher(teacherId: string, actorId: string): Promise<void> {
   await assertHeadActor(actorId);
   const teacher = await db.teachers.get(teacherId);
-  if (!teacher || teacher.deletedAt !== null) throw new DomainError('teachers.errors.notFound');
+  if (!teacher || teacher.deletedAt != null) throw new DomainError('teachers.errors.notFound');
   const inUse = await db.timetableSlots
     .where('institutionId')
     .equals(teacher.institutionId)
-    .filter((slot) => slot.deletedAt === null && slotLessons(slot).some((lesson) => lesson.teacherId === teacherId))
+    .filter((slot) => slot.deletedAt == null && slotLessons(slot).some((lesson) => lesson.teacherId === teacherId))
     .count();
   if (inUse > 0) throw new DomainError('teachers.errors.inUse');
   await db.teachers.put({ ...teacher, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
@@ -60,7 +60,7 @@ export async function addTeacherAssignment(
   await assertHeadActor(actorId);
   const cleanSubject = cleanName(subject);
   const schoolClass = await db.classes.get(classId);
-  if (!schoolClass || schoolClass.deletedAt !== null) throw new DomainError('validation.classNotFound');
+  if (!schoolClass || schoolClass.deletedAt != null) throw new DomainError('validation.classNotFound');
   await addTeacherAssignmentIfMissing(teacherId, classId, cleanSubject, actorId);
 }
 
@@ -73,7 +73,7 @@ export async function removeTeacherAssignment(
   await assertHeadActor(actorId);
   await db.transaction('rw', db.teachers, db.timetableSlots, async () => {
     const teacher = await db.teachers.get(teacherId);
-    if (!teacher || teacher.deletedAt !== null) throw new DomainError('teachers.errors.notFound');
+    if (!teacher || teacher.deletedAt != null) throw new DomainError('teachers.errors.notFound');
     await db.teachers.put({
       ...teacher,
       assignments: teacher.assignments.filter((item) => !sameAssignment(item, classId, subject)),
@@ -81,7 +81,7 @@ export async function removeTeacherAssignment(
     });
     const slots = await db.timetableSlots.where('institutionId').equals(teacher.institutionId).toArray();
     for (const slot of slots) {
-      if (slot.deletedAt !== null || slot.classId !== classId) continue;
+      if (slot.deletedAt != null || slot.classId !== classId) continue;
       const updated = unassignTeacherFromSlot(slot, teacherId, subject);
       if (updated !== slot) await db.timetableSlots.put({ ...updated, ...touchFields(actorId) });
     }
@@ -96,10 +96,10 @@ export async function regenerateTeacherAssignments(institutionId: string, actorI
       db.timetableSlots.where('institutionId').equals(institutionId).toArray(),
     ]);
     for (const teacher of teachers) {
-      if (teacher.deletedAt !== null) continue;
+      if (teacher.deletedAt != null) continue;
       const assignments: TeacherAssignment[] = [];
       for (const slot of slots) {
-        if (slot.deletedAt !== null) continue;
+        if (slot.deletedAt != null) continue;
         for (const lesson of slotLessons(slot)) {
           if (lesson.teacherId !== teacher.id) continue;
           if (!assignments.some((item) => sameAssignment(item, slot.classId, lesson.subject))) {
@@ -119,7 +119,7 @@ export async function addTeacherAssignmentIfMissing(
   actorId: string,
 ): Promise<void> {
   const teacher = await db.teachers.get(teacherId);
-  if (!teacher || teacher.deletedAt !== null) throw new DomainError('teachers.errors.notFound');
+  if (!teacher || teacher.deletedAt != null) throw new DomainError('teachers.errors.notFound');
   if (teacher.assignments.some((item) => sameAssignment(item, classId, subject))) return;
   await db.teachers.put({
     ...teacher,

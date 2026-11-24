@@ -48,9 +48,16 @@ export async function flushOutbox(): Promise<void> {
     const entries = await db.outbox.orderBy('createdAt').toArray();
     const byTable = new Map<SyncTable, SyncRecord[]>();
     for (const entry of entries) {
+      let parsed: SyncRecord;
+      try {
+        parsed = JSON.parse(entry.payload) as SyncRecord;
+      } catch {
+        await db.outbox.delete(entry.id).catch(() => undefined);
+        continue;
+      }
       const table = entry.tableName as SyncTable;
       const records = byTable.get(table) ?? [];
-      records.push(JSON.parse(entry.payload) as SyncRecord);
+      records.push(parsed);
       byTable.set(table, records);
     }
     for (const [table, records] of byTable) {

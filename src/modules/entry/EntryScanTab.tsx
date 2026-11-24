@@ -133,7 +133,7 @@ export function EntryScanTab({
   );
 
   const absentStudentIdsToday = useMemo(
-    () => new Set(absencesToday.filter((item) => item.deletedAt === null).map((item) => item.studentId)),
+    () => new Set(absencesToday.filter((item) => item.deletedAt == null).map((item) => item.studentId)),
     [absencesToday],
   );
 
@@ -141,7 +141,7 @@ export function EntryScanTab({
     () =>
       new Set(
         sessionEntries
-          .filter((item) => item.deletedAt === null && item.date === today && item.result === 'accepted' && item.studentId)
+          .filter((item) => item.deletedAt == null && item.date === today && item.result === 'accepted' && item.studentId)
           .map((item) => item.studentId as string),
       ),
     [sessionEntries, today],
@@ -149,7 +149,7 @@ export function EntryScanTab({
 
   const latestScans = useMemo(() => sessionEntries.slice(0, 10), [sessionEntries]);
   const lastAcceptedEntry = useMemo(
-    () => sessionEntries.find((item) => item.deletedAt === null && item.result === 'accepted') ?? null,
+    () => sessionEntries.find((item) => item.deletedAt == null && item.result === 'accepted') ?? null,
     [sessionEntries],
   );
 
@@ -220,7 +220,7 @@ export function EntryScanTab({
             hasManualAbsence = syncResult.hasManualAbsence;
           } else {
             hasManualAbsence = absencesRef.current.some(
-              (item) => item.deletedAt === null && item.studentId === student.id,
+              (item) => item.deletedAt == null && item.studentId === student.id,
             );
           }
         }
@@ -418,7 +418,7 @@ export function EntryScanTab({
     if (query.length < 1) return [];
     return students
       .filter((student) => {
-        if (student.leaveDate !== null && student.leaveDate <= today) return false;
+        if (student.leaveDate != null && student.leaveDate <= today) return false;
         const name = studentFullName(student).toLowerCase();
         const code = (student.cardCode ?? '').toLowerCase();
         const cls = (classById.get(student.classId) ?? '').toLowerCase();

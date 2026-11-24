@@ -43,7 +43,7 @@ function isGateEntry(value: unknown): value is GateEntry {
       (typeof item.session === 'string' && (ENTRY_SESSIONS as readonly string[]).includes(item.session))) &&
     typeof item.createdAt === 'string' &&
     typeof item.updatedAt === 'string' &&
-    (item.deletedAt === null || typeof item.deletedAt === 'string')
+    (item.deletedAt == null || typeof item.deletedAt === 'string')
   );
 }
 
@@ -74,9 +74,9 @@ export interface EntryMergePlan {
 
 function compareEntryChrono(a: GateEntry, b: GateEntry): number {
   return (
-    a.time.localeCompare(b.time) ||
-    a.createdAt.localeCompare(b.createdAt) ||
-    a.id.localeCompare(b.id)
+    (a.time ?? '').localeCompare(b.time ?? '') ||
+    (a.createdAt ?? '').localeCompare(b.createdAt ?? '') ||
+    (a.id ?? '').localeCompare(b.id ?? '')
   );
 }
 
@@ -116,7 +116,7 @@ export function planEntryMerge(
   // Group all active accepted entries by studentId + date + session; keep the earliest, downgrade later ones to duplicate.
   const acceptedByStudentDay = new Map<string, GateEntry[]>();
   for (const entry of byId.values()) {
-    if (entry.deletedAt !== null || entry.result !== 'accepted' || !entry.studentId) continue;
+    if (entry.deletedAt != null || entry.result !== 'accepted' || !entry.studentId) continue;
     const session = resolveEntrySession(entry);
     const key = `${entry.date}|${session}|${entry.studentId}`;
     const list = acceptedByStudentDay.get(key) ?? [];

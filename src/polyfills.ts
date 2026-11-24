@@ -62,7 +62,10 @@ export function installCompatPolyfills(): void {
   }
 
   // 3. Object.hasOwn (Chrome < 93)
-  if (typeof Object.hasOwn !== 'function') {
+  const ObjectWithHasOwn = Object as ObjectConstructor & {
+    hasOwn?: (obj: object, prop: PropertyKey) => boolean;
+  };
+  if (typeof ObjectWithHasOwn.hasOwn !== 'function') {
     Object.defineProperty(Object, 'hasOwn', {
       value(obj: object, prop: PropertyKey): boolean {
         if (obj === null || obj === undefined) {
@@ -76,7 +79,10 @@ export function installCompatPolyfills(): void {
   }
 
   // 4. String.prototype.replaceAll (Chrome < 85)
-  if (typeof String.prototype.replaceAll !== 'function') {
+  const stringProto = String.prototype as string & {
+    replaceAll?: (search: string | RegExp, replacement: string | ((...args: unknown[]) => string)) => string;
+  };
+  if (typeof stringProto.replaceAll !== 'function') {
     Object.defineProperty(String.prototype, 'replaceAll', {
       value(this: string, search: string | RegExp, replacement: string | ((...args: unknown[]) => string)): string {
         const str = String(this);
@@ -110,7 +116,14 @@ export function installCompatPolyfills(): void {
   }
 
   // 5. Array.prototype.at (Chrome < 92)
-  if (typeof Array.prototype.at !== 'function') {
+  const arrayProto = Array.prototype as unknown[] & {
+    at?: <T>(this: T[], index: number) => T | undefined;
+    findLast?: <T>(this: T[], predicate: (value: T, index: number, obj: T[]) => unknown, thisArg?: unknown) => T | undefined;
+    findLastIndex?: <T>(this: T[], predicate: (value: T, index: number, obj: T[]) => unknown, thisArg?: unknown) => number;
+    toSorted?: <T>(this: T[], compareFn?: (a: T, b: T) => number) => T[];
+    toReversed?: <T>(this: T[]) => T[];
+  };
+  if (typeof arrayProto.at !== 'function') {
     Object.defineProperty(Array.prototype, 'at', {
       value<T>(this: T[], index: number): T | undefined {
         const len = this.length >>> 0;
@@ -125,7 +138,7 @@ export function installCompatPolyfills(): void {
   }
 
   // 6. Array.prototype.findLast / findLastIndex (Chrome < 97)
-  if (typeof Array.prototype.findLast !== 'function') {
+  if (typeof arrayProto.findLast !== 'function') {
     Object.defineProperty(Array.prototype, 'findLast', {
       value<T>(this: T[], predicate: (value: T, index: number, obj: T[]) => unknown, thisArg?: unknown): T | undefined {
         for (let i = this.length - 1; i >= 0; i -= 1) {
@@ -138,7 +151,7 @@ export function installCompatPolyfills(): void {
     });
   }
 
-  if (typeof Array.prototype.findLastIndex !== 'function') {
+  if (typeof arrayProto.findLastIndex !== 'function') {
     Object.defineProperty(Array.prototype, 'findLastIndex', {
       value<T>(this: T[], predicate: (value: T, index: number, obj: T[]) => unknown, thisArg?: unknown): number {
         for (let i = this.length - 1; i >= 0; i -= 1) {
@@ -152,7 +165,7 @@ export function installCompatPolyfills(): void {
   }
 
   // 7. Array.prototype.toSorted / toReversed (Chrome < 110)
-  if (typeof Array.prototype.toSorted !== 'function') {
+  if (typeof arrayProto.toSorted !== 'function') {
     Object.defineProperty(Array.prototype, 'toSorted', {
       value<T>(this: T[], compareFn?: (a: T, b: T) => number): T[] {
         return Array.from(this).sort(compareFn);
@@ -162,7 +175,7 @@ export function installCompatPolyfills(): void {
     });
   }
 
-  if (typeof Array.prototype.toReversed !== 'function') {
+  if (typeof arrayProto.toReversed !== 'function') {
     Object.defineProperty(Array.prototype, 'toReversed', {
       value<T>(this: T[]): T[] {
         return Array.from(this).reverse();

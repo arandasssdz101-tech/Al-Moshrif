@@ -37,7 +37,7 @@ export function TrackingStartSheet({ open, onClose, onSaved }: TrackingStartShee
         const entries = await listAllCanteenEntries(institution.id);
         const beforeDates = new Set(
           entries
-            .filter((e) => e.deletedAt === null && e.date < date)
+            .filter((e) => e.deletedAt == null && e.date < date)
             .map((e) => e.date),
         );
         setAffectedCount(beforeDates.size);

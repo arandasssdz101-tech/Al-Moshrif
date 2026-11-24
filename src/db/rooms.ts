@@ -10,8 +10,8 @@ import type { Room } from './types';
 export async function listRooms(institutionId: string): Promise<Room[]> {
   const rooms = await db.rooms.where('institutionId').equals(institutionId).toArray();
   return rooms
-    .filter((room) => room.deletedAt === null)
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    .filter((room) => room.deletedAt == null)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }));
 }
 
 export async function createRoom(institutionId: string, rawName: string, actorId: string): Promise<Room> {
@@ -42,11 +42,11 @@ export async function restoreRoom(roomId: string, actorId: string): Promise<void
 export async function deleteRoom(roomId: string, actorId: string): Promise<void> {
   await assertHeadActor(actorId);
   const room = await db.rooms.get(roomId);
-  if (!room || room.deletedAt !== null) throw new DomainError('rooms.errors.notFound');
+  if (!room || room.deletedAt != null) throw new DomainError('rooms.errors.notFound');
   const inUse = await db.timetableSlots
     .where('institutionId')
     .equals(room.institutionId)
-    .filter((slot) => slot.deletedAt === null && slotLessons(slot).some((lesson) => lesson.roomId === roomId))
+    .filter((slot) => slot.deletedAt == null && slotLessons(slot).some((lesson) => lesson.roomId === roomId))
     .count();
   if (inUse > 0) throw new DomainError('rooms.errors.inUse');
   await db.rooms.put({ ...room, deletedAt: new Date().toISOString(), ...touchFields(actorId) });

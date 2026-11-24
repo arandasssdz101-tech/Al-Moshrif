@@ -97,6 +97,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   const [usingFallback, setUsingFallback] = useState(false);
   const [systemScanResult, setSystemScanResult] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const webStreamRef = useRef<MediaStream | null>(null);
   const trackRef = useRef<MediaStreamTrack | null>(null);
   const pausedRef = useRef(paused);
   const onDetectRef = useRef(onDetect);
@@ -107,6 +108,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   const backCleanupRef = useRef<(() => void) | null>(null);
   const scanningRef = useRef(false);
   const startingRef = useRef(false);
+  const mountedRef = useRef(true);
   const onCloseRef = useRef(onClose);
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
@@ -165,14 +167,29 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
     await BarcodeScanner.stopScan().catch(() => undefined);
   }, []);
 
+  const stopWebStream = useCallback(() => {
+    zxingControlsRef.current?.stop();
+    zxingControlsRef.current = null;
+    zxingReaderRef.current = null;
+    if (webStreamRef.current) {
+      webStreamRef.current.getTracks().forEach((tr) => tr.stop());
+      webStreamRef.current = null;
+    }
+    trackRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
   const closeScanner = useCallback(() => {
+    stopWebStream();
     void stopNativeScan();
     if (backCleanupRef.current) {
       backCleanupRef.current();
       backCleanupRef.current = null;
     }
     onCloseRef.current();
-  }, [stopNativeScan]);
+  }, [stopNativeScan, stopWebStream]);
 
   useEffect(() => {
     if (!isNative) return;
@@ -261,23 +278,32 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   }, [isNative, facing, permissionVersion]);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
+      stopWebStream();
       setBodyScanning(false);
     };
-  }, []);
+  }, [stopWebStream]);
 
   const startWebFallback = async () => {
     if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      setStatus('unsupported');
+      if (mountedRef.current) setStatus('unsupported');
       return;
     }
+    stopWebStream();
     let stream: MediaStream | null = null;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } });
     } catch (err) {
+      if (!mountedRef.current) return;
       const msg = err instanceof Error ? err.message : String(err);
       setLastError(msg);
       setStatus('denied');
+      return;
+    }
+    if (!mountedRef.current) {
+      stream.getTracks().forEach((tr) => tr.stop());
       return;
     }
     const track = stream.getVideoTracks()[0] ?? null;
@@ -287,17 +313,22 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
       stream.getTracks().forEach((tr) => tr.stop());
       return;
     }
+    webStreamRef.current = stream;
     trackRef.current = track;
     const capabilities = (track.getCapabilities?.() ?? {}) as { torch?: boolean };
     setTorchAvailable(Boolean(capabilities.torch));
 
     const video = videoRef.current;
     if (!video) {
-      stream.getTracks().forEach((tr) => tr.stop());
+      stopWebStream();
       return;
     }
     video.srcObject = stream;
     await video.play().catch(() => undefined);
+    if (!mountedRef.current) {
+      stopWebStream();
+      return;
+    }
 
     setUsingFallback(true);
     setMode('web');
@@ -306,13 +337,19 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
 
     try {
       const { BrowserMultiFormatReader } = await import('@zxing/browser');
+      if (!mountedRef.current) return;
       const reader = new BrowserMultiFormatReader();
       zxingReaderRef.current = reader;
       const controls = await reader.decodeFromVideoDevice(undefined, video, (result) => {
         if (result) emit(result.getText());
       });
+      if (!mountedRef.current) {
+        controls.stop();
+        return;
+      }
       zxingControlsRef.current = controls;
     } catch {
+      if (!mountedRef.current) return;
       const Detector = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
       if (Detector) {
         const detector = new Detector({ formats: ['code_128', 'code_39', 'ean_13', 'itf', 'qr_code', 'data_matrix', 'pdf_417'] });
@@ -357,6 +394,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         stream.getTracks().forEach((tr) => tr.stop());
         return;
       }
+      webStreamRef.current = stream;
       trackRef.current = track;
       const capabilities = (track.getCapabilities?.() ?? {}) as { torch?: boolean };
       setTorchAvailable(Boolean(capabilities.torch));
@@ -365,7 +403,13 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         video.srcObject = stream;
         await video.play().catch(() => undefined);
       }
-      if (!cancelled) { setStatus('running'); setMode('web'); setLastError(null); }
+      if (cancelled) {
+        stopWebStream();
+        return;
+      }
+      setStatus('running');
+      setMode('web');
+      setLastError(null);
 
       try {
         const { BrowserMultiFormatReader } = await import('@zxing/browser');
@@ -375,8 +419,13 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         const controls = await reader.decodeFromVideoDevice(undefined, video!, (result) => {
           if (result) emit(result.getText());
         });
+        if (cancelled) {
+          controls.stop();
+          return;
+        }
         zxingControlsRef.current = controls;
       } catch {
+        if (cancelled) return;
         const Detector = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
         if (Detector) {
           const detector = new Detector({ formats: ['code_128', 'code_39', 'ean_13', 'itf', 'qr_code', 'data_matrix', 'pdf_417'] });
@@ -395,10 +444,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
 
     return () => {
       cancelled = true;
-      zxingControlsRef.current?.stop();
-      zxingControlsRef.current = null;
-      zxingReaderRef.current = null;
-      trackRef.current = null;
+      stopWebStream();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNative, facing]);
@@ -443,8 +489,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         setFacing((value) => (value === 'environment' ? 'user' : 'environment'));
       });
     } else {
-      zxingControlsRef.current?.stop();
-      zxingControlsRef.current = null;
+      stopWebStream();
       setFacing((value) => (value === 'environment' ? 'user' : 'environment'));
     }
   };

@@ -12,12 +12,12 @@ describe('Android WebView compatibility polyfills', () => {
   it('installs polyfills idempotently without throwing', () => {
     expect(() => installCompatPolyfills()).not.toThrow();
     expect(typeof crypto.randomUUID).toBe('function');
-    expect(typeof Object.hasOwn).toBe('function');
+    expect(typeof Reflect.get(Object, 'hasOwn')).toBe('function');
     expect(typeof Object.fromEntries).toBe('function');
-    expect(typeof Array.prototype.at).toBe('function');
+    expect(typeof Reflect.get(Array.prototype, 'at')).toBe('function');
     expect(typeof Array.prototype.flat).toBe('function');
     expect(typeof Array.prototype.flatMap).toBe('function');
-    expect(typeof String.prototype.replaceAll).toBe('function');
+    expect(typeof Reflect.get(String.prototype, 'replaceAll')).toBe('function');
     expect(typeof String.prototype.trimStart).toBe('function');
     expect(typeof String.prototype.trimEnd).toBe('function');
     expect(typeof Promise.allSettled).toBe('function');

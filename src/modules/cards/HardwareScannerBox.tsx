@@ -76,6 +76,22 @@ export function HardwareScannerBox({
   const burstTimerRef = useRef<number | null>(null);
   const latestValueRef = useRef<string>('');
   const wasPausedRef = useRef<boolean>(paused);
+  const focusTimersRef = useRef<Set<number>>(new Set());
+
+  const clearFocusTimers = useCallback(() => {
+    for (const timer of focusTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    focusTimersRef.current.clear();
+  }, []);
+
+  const scheduleTimer = useCallback((fn: () => void, delayMs: number) => {
+    const timer = window.setTimeout(() => {
+      focusTimersRef.current.delete(timer);
+      fn();
+    }, delayMs);
+    focusTimersRef.current.add(timer);
+  }, []);
 
   const clearBurstState = useCallback(() => {
     if (burstTimerRef.current !== null) {
@@ -100,17 +116,17 @@ export function HardwareScannerBox({
       setValue('');
       latestValueRef.current = '';
       if (!rawToSubmit.trim() && !normalizeScannedCode(rawToSubmit, { convertAzertyDigits: azertyFix })) {
-        if (!paused) setTimeout(focusInput, 0);
+        if (!paused) scheduleTimer(focusInput, 0);
         return;
       }
       const normalized = normalizeScannedCode(rawToSubmit, { convertAzertyDigits: azertyFix });
       onScanSubmit(rawToSubmit, normalized);
       // Refocus immediately after scan (unless parent opened a modal, in which case paused effect handles refocus on close)
-      setTimeout(() => {
+      scheduleTimer(() => {
         if (!paused) focusInput();
       }, 20);
     },
-    [azertyFix, clearBurstState, focusInput, onScanSubmit, paused],
+    [azertyFix, clearBurstState, focusInput, onScanSubmit, paused, scheduleTimer],
   );
 
   // Autofocus on mount
@@ -152,14 +168,19 @@ export function HardwareScannerBox({
       if (paused) return;
       if (event.target === inputRef.current) return;
       if (isInteractiveTarget(event.target)) return;
-      window.setTimeout(focusInput, 0);
+      scheduleTimer(focusInput, 0);
     };
     container.addEventListener('pointerdown', handleScreenPointerDown);
     return () => container.removeEventListener('pointerdown', handleScreenPointerDown);
-  }, [paused, screenRef, focusInput]);
+  }, [paused, screenRef, focusInput, scheduleTimer]);
 
-  // Cleanup burst timer on unmount
-  useEffect(() => () => clearBurstState(), [clearBurstState]);
+  // Cleanup burst & focus timers on unmount
+  useEffect(() => {
+    return () => {
+      clearBurstState();
+      clearFocusTimers();
+    };
+  }, [clearBurstState, clearFocusTimers]);
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const next = event.target.value;
@@ -218,9 +239,11 @@ export function HardwareScannerBox({
     if (!input) return;
     // Blur + refocus ensures mobile browsers apply the updated inputMode immediately
     input.blur();
-    window.setTimeout(() => {
-      input.focus({ preventScroll: true });
-      setFocused(document.activeElement === input);
+    scheduleTimer(() => {
+      const target = inputRef.current;
+      if (!target) return;
+      target.focus({ preventScroll: true });
+      setFocused(document.activeElement === target);
     }, 20);
   };
 

@@ -51,7 +51,7 @@ export async function joinInstitution(input: { inviteCode: string; name: string;
 
   return db.transaction('rw', db.institutions, db.users, async () => {
     const institution = await db.institutions.where('inviteCode').equals(code).first();
-    if (!institution || institution.deletedAt !== null) {
+    if (!institution || institution.deletedAt != null) {
       throw new DomainError('auth.errors.inviteInvalid');
     }
     await assertUsernameAvailable(usernameKey);
@@ -76,7 +76,7 @@ export async function signInWithCredentials(identifier: string, password: string
   const user = await db.users
     .where('usernameKey')
     .equals(usernameKey)
-    .filter((candidate) => candidate.deletedAt === null)
+    .filter((candidate) => candidate.deletedAt == null)
     .first();
 
   if (!user || !(await verifyPassword(password, user.passwordHash))) {
@@ -90,8 +90,8 @@ export async function signInWithCredentials(identifier: string, password: string
 
 export async function loadSession(userId: string): Promise<SessionData | null> {
   const user = await db.users.get(userId);
-  if (!user || user.deletedAt !== null) return null;
+  if (!user || user.deletedAt != null) return null;
   const institution = await db.institutions.get(user.institutionId);
-  if (!institution || institution.deletedAt !== null) return null;
+  if (!institution || institution.deletedAt != null) return null;
   return { user, institution };
 }

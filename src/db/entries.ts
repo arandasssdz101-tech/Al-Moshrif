@@ -65,8 +65,8 @@ export async function loadEntryWorkspace(institutionId: string, actorId: string)
 
   // At the school gate, scanning may receive any student in the institution; supervisors can view/filter classes according to access.
   const activeClasses = classes
-    .filter((item) => item.deletedAt === null)
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    .filter((item) => item.deletedAt == null)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }));
 
   const visibleClasses = access.isHead
     ? activeClasses
@@ -78,9 +78,9 @@ export async function loadEntryWorkspace(institutionId: string, actorId: string)
     institution,
     classes: visibleClasses.length > 0 ? visibleClasses : activeClasses,
     students: students
-      .filter((item) => item.deletedAt === null && classIds.has(item.classId))
-      .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)),
-    slots: slots.filter((item) => item.deletedAt === null && classIds.has(item.classId)),
+      .filter((item) => item.deletedAt == null && classIds.has(item.classId))
+      .sort((a, b) => `${a.firstName ?? ''} ${a.lastName ?? ''}`.localeCompare(`${b.firstName ?? ''} ${b.lastName ?? ''}`)),
+    slots: slots.filter((item) => item.deletedAt == null && classIds.has(item.classId)),
   };
 }
 
@@ -88,9 +88,9 @@ export async function listGateEntriesForDate(institutionId: string, date: string
   const rows = await db.entries
     .where('date')
     .equals(date)
-    .filter((entry) => entry.institutionId === institutionId && entry.deletedAt === null)
+    .filter((entry) => entry.institutionId === institutionId && entry.deletedAt == null)
     .toArray();
-  return rows.sort((a, b) => b.time.localeCompare(a.time) || b.createdAt.localeCompare(a.createdAt));
+  return rows.sort((a, b) => (b.time ?? '').localeCompare(a.time ?? '') || (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
 }
 
 export async function listAllGateEntries(institutionId: string, date?: string): Promise<GateEntry[]> {
@@ -100,9 +100,9 @@ export async function listAllGateEntries(institutionId: string, date?: string): 
   const rows = await db.entries
     .where('institutionId')
     .equals(institutionId)
-    .filter((entry) => entry.deletedAt === null)
+    .filter((entry) => entry.deletedAt == null)
     .toArray();
-  return rows.sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
+  return rows.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? '') || (b.time ?? '').localeCompare(a.time ?? ''));
 }
 
 export async function getEntryDayClosure(
@@ -120,7 +120,7 @@ export async function listStudentAbsencesForDate(
   return db.studentAbsences
     .where('institutionId')
     .equals(institutionId)
-    .filter((record) => record.deletedAt === null && record.date === date)
+    .filter((record) => record.deletedAt == null && record.date === date)
     .toArray();
 }
 
@@ -169,7 +169,7 @@ export async function softDeleteGateEntry(entryId: string, actorId: string): Pro
   const access = await getModuleAccess(actorId, 'entry');
   if (!access.canEdit) throw new DomainError('errors.notAuthorized');
   const existing = await db.entries.get(entryId);
-  if (!existing || existing.deletedAt !== null) throw new DomainError('errors.notFound');
+  if (!existing || existing.deletedAt != null) throw new DomainError('errors.notFound');
   await db.entries.put({
     ...existing,
     deletedAt: new Date().toISOString(),
@@ -190,7 +190,7 @@ export async function removeStudentDayAbsences(
   const records = await db.studentAbsences
     .where('institutionId')
     .equals(institutionId)
-    .filter((item) => item.deletedAt === null && item.studentId === studentId && item.date === date)
+    .filter((item) => item.deletedAt == null && item.studentId === studentId && item.date === date)
     .toArray();
 
   if (records.length === 0) return 0;
@@ -233,8 +233,8 @@ export async function ensureGateAutoAbsencesStarted(
 
   const settings = getEntrySettings(institution);
   const [students, slots, entries, existingAbsences] = await Promise.all([
-    db.students.where('institutionId').equals(institutionId).filter((s) => s.deletedAt === null).toArray(),
-    db.timetableSlots.where('institutionId').equals(institutionId).filter((t) => t.deletedAt === null).toArray(),
+    db.students.where('institutionId').equals(institutionId).filter((s) => s.deletedAt == null).toArray(),
+    db.timetableSlots.where('institutionId').equals(institutionId).filter((t) => t.deletedAt == null).toArray(),
     listGateEntriesForDate(institutionId, date),
     listStudentAbsencesForDate(institutionId, date),
   ]);
@@ -321,7 +321,7 @@ export async function syncStudentGateAbsenceOnAcceptedScan(
   const existingAbsences = await db.studentAbsences
     .where('institutionId')
     .equals(institutionId)
-    .filter((item) => item.deletedAt === null && item.studentId === student.id && item.date === date)
+    .filter((item) => item.deletedAt == null && item.studentId === student.id && item.date === date)
     .toArray();
 
   if (!isCardAbsenceEnabled(institution)) {
@@ -336,7 +336,7 @@ export async function syncStudentGateAbsenceOnAcceptedScan(
   const slots = await db.timetableSlots
     .where('classId')
     .equals(student.classId)
-    .filter((item) => item.deletedAt === null)
+    .filter((item) => item.deletedAt == null)
     .toArray();
 
   const plan = planStudentGateAbsenceSync({
@@ -413,11 +413,11 @@ export async function restoreStudentGateAbsencesAfterUndo(
     db.studentAbsences
       .where('institutionId')
       .equals(institutionId)
-      .filter((item) => item.deletedAt === null && item.studentId === studentId && item.date === date)
+      .filter((item) => item.deletedAt == null && item.studentId === studentId && item.date === date)
       .toArray(),
   ]);
 
-  if (!student || student.deletedAt !== null || !isEnrolledOn(student, date)) return 0;
+  if (!student || student.deletedAt != null || !isEnrolledOn(student, date)) return 0;
 
   const acceptedMap = acceptedEntryByStudent(entries, date, session, settings.eveningStartTime);
   if (acceptedMap.has(studentId)) return 0;
@@ -425,7 +425,7 @@ export async function restoreStudentGateAbsencesAfterUndo(
   const slots = await db.timetableSlots
     .where('classId')
     .equals(student.classId)
-    .filter((item) => item.deletedAt === null)
+    .filter((item) => item.deletedAt == null)
     .toArray();
   const lessons = classLessonsForDay(slots, student.classId, weekdayOfDate(date)).filter((lesson) =>
     isPeriodInSession(lesson.period, session, settings.eveningStartTime),
@@ -475,7 +475,7 @@ export async function clearGateAutoAbsencesForDay(
       .equals(institutionId)
       .filter(
         (item) =>
-          item.deletedAt === null &&
+          item.deletedAt == null &&
           item.date === date &&
           item.source === 'gate' &&
           isPeriodInSession(item.period, session, settings.eveningStartTime),
@@ -554,9 +554,9 @@ export async function previewCloseEntryDay(
   }
 
   const [classes, students, slots, entries, existingAbsences] = await Promise.all([
-    db.classes.where('institutionId').equals(institutionId).filter((c) => c.deletedAt === null).toArray(),
-    db.students.where('institutionId').equals(institutionId).filter((s) => s.deletedAt === null).toArray(),
-    db.timetableSlots.where('institutionId').equals(institutionId).filter((t) => t.deletedAt === null).toArray(),
+    db.classes.where('institutionId').equals(institutionId).filter((c) => c.deletedAt == null).toArray(),
+    db.students.where('institutionId').equals(institutionId).filter((s) => s.deletedAt == null).toArray(),
+    db.timetableSlots.where('institutionId').equals(institutionId).filter((t) => t.deletedAt == null).toArray(),
     listGateEntriesForDate(institutionId, date),
     listStudentAbsencesForDate(institutionId, date),
   ]);
@@ -576,7 +576,7 @@ export async function previewCloseEntryDay(
     .sort((a, b) => {
       const ca = classById.get(a.classId) ?? '';
       const cb = classById.get(b.classId) ?? '';
-      return ca.localeCompare(cb, undefined, { numeric: true }) || `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+      return ca.localeCompare(cb, undefined, { numeric: true }) || `${a.firstName ?? ''} ${a.lastName ?? ''}`.localeCompare(`${b.firstName ?? ''} ${b.lastName ?? ''}`);
     });
 
   for (const student of enrolled) {
@@ -726,7 +726,7 @@ export async function undoCloseEntryDay(
     const handledIds = new Set<string>();
     for (const absenceId of existing.createdAbsenceIds) {
       const record = await db.studentAbsences.get(absenceId);
-      if (record && record.deletedAt === null) {
+      if (record && record.deletedAt == null) {
         await db.studentAbsences.put({
           ...record,
           deletedAt: now,
@@ -741,7 +741,7 @@ export async function undoCloseEntryDay(
       .equals(institutionId)
       .filter(
         (item) =>
-          item.deletedAt === null &&
+          item.deletedAt == null &&
           item.date === date &&
           item.source === 'gate' &&
           !handledIds.has(item.id) &&
@@ -812,7 +812,7 @@ export async function importGateEntries(
     if (isCardAbsenceEnabled(institution)) {
       const acceptedByDateSession = new Map<string, { date: string; session: EntrySession; entries: GateEntry[] }>();
       for (const entry of plan.toPut) {
-        if (entry.deletedAt !== null || entry.result !== 'accepted' || !entry.studentId) continue;
+        if (entry.deletedAt != null || entry.result !== 'accepted' || !entry.studentId) continue;
         const session = resolveEntrySession(entry, settings.eveningStartTime);
         const key = `${entry.date}|${session}`;
         const group = acceptedByDateSession.get(key) ?? { date: entry.date, session, entries: [] };
@@ -825,7 +825,7 @@ export async function importGateEntries(
         for (const entry of group.entries) {
           if (!entry.studentId) continue;
           const student = await db.students.get(entry.studentId);
-          if (!student || student.deletedAt !== null) continue;
+          if (!student || student.deletedAt != null) continue;
           await syncStudentGateAbsenceOnAcceptedScan(
             institutionId,
             actorId,
@@ -932,12 +932,12 @@ export async function resetGateEntriesForDate(
       db.entries
         .where('date')
         .equals(date)
-        .filter((entry) => entry.institutionId === institutionId && entry.deletedAt === null)
+        .filter((entry) => entry.institutionId === institutionId && entry.deletedAt == null)
         .toArray(),
       db.studentAbsences
         .where('institutionId')
         .equals(institutionId)
-        .filter((record) => record.deletedAt === null && record.date === date)
+        .filter((record) => record.deletedAt == null && record.date === date)
         .toArray(),
       db.entryClosures.get(closureIdFor(institutionId, date, 'morning')),
       db.entryClosures.get(closureIdFor(institutionId, date, 'evening')),

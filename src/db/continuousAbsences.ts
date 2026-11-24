@@ -93,7 +93,7 @@ async function syncSingleContinuousAbsenceInTx(
   const occupiedKeys = new Set<string>();
 
   for (const existing of studentExistingAbsences) {
-    if (existing.deletedAt !== null) continue;
+    if (existing.deletedAt != null) continue;
     if (existing.status === 'late') continue;
     const key = `${existing.date}|${existing.period}`;
 
@@ -145,7 +145,7 @@ export async function syncContinuousAbsencesUpTo(
   const activeRecords = await db.continuousAbsences
     .where('institutionId')
     .equals(institutionId)
-    .filter((item) => item.deletedAt === null && canAccessClass(access, item.classId))
+    .filter((item) => item.deletedAt == null && canAccessClass(access, item.classId))
     .toArray();
 
   if (activeRecords.length === 0) return;
@@ -162,12 +162,12 @@ export async function syncContinuousAbsencesUpTo(
         db.timetableSlots
           .where('institutionId')
           .equals(institutionId)
-          .filter((slot) => slot.deletedAt === null)
+          .filter((slot) => slot.deletedAt == null)
           .toArray(),
         db.studentAbsences
           .where('institutionId')
           .equals(institutionId)
-          .filter((item) => item.deletedAt === null)
+          .filter((item) => item.deletedAt == null)
           .toArray(),
       ]);
 
@@ -187,7 +187,7 @@ export async function syncContinuousAbsencesUpTo(
 
       for (const record of activeRecords) {
         const student = await db.students.get(record.studentId);
-        if (!student || student.deletedAt !== null) continue;
+        if (!student || student.deletedAt != null) continue;
         const syncEndTarget =
           record.endDate !== null && record.endDate > targetDate ? record.endDate : targetDate;
         await syncSingleContinuousAbsenceInTx(
@@ -220,7 +220,7 @@ export async function saveContinuousAbsence(
   }
 
   const student = await db.students.get(input.studentId);
-  if (!student || student.deletedAt !== null || student.institutionId !== institutionId) {
+  if (!student || student.deletedAt != null || student.institutionId !== institutionId) {
     throw new DomainError('errors.notFound');
   }
 
@@ -238,7 +238,7 @@ export async function saveContinuousAbsence(
       const existingForStudent = await db.continuousAbsences
         .where('studentId')
         .equals(student.id)
-        .filter((item) => item.deletedAt === null)
+        .filter((item) => item.deletedAt == null)
         .toArray();
 
       let baseRecord: ContinuousAbsence;
@@ -282,12 +282,12 @@ export async function saveContinuousAbsence(
         db.timetableSlots
           .where('classId')
           .equals(student.classId)
-          .filter((slot) => slot.deletedAt === null)
+          .filter((slot) => slot.deletedAt == null)
           .toArray(),
         db.studentAbsences
           .where('institutionId')
           .equals(institutionId)
-          .filter((item) => item.deletedAt === null && item.studentId === student.id)
+          .filter((item) => item.deletedAt == null && item.studentId === student.id)
           .toArray(),
       ]);
 
@@ -311,7 +311,7 @@ export async function deleteContinuousAbsence(
   actorId: string,
 ): Promise<void> {
   const record = await db.continuousAbsences.get(continuousAbsenceId);
-  if (!record || record.deletedAt !== null) throw new DomainError('errors.notFound');
+  if (!record || record.deletedAt != null) throw new DomainError('errors.notFound');
   assertCanEditClassIn(await getModuleAccess(actorId, 'attendance'), record.classId);
 
   const now = new Date().toISOString();
@@ -325,7 +325,7 @@ export async function deleteContinuousAbsence(
         .where('institutionId')
         .equals(record.institutionId)
         .filter(
-          (item) => item.deletedAt === null && item.continuousAbsenceId === record.id,
+          (item) => item.deletedAt == null && item.continuousAbsenceId === record.id,
         )
         .toArray();
 
@@ -335,7 +335,7 @@ export async function deleteContinuousAbsence(
 
       if (record.struckAt) {
         const student = await db.students.get(record.studentId);
-        if (student && student.deletedAt === null && student.leaveDate === record.struckAt) {
+        if (student && student.deletedAt == null && student.leaveDate === record.struckAt) {
           await db.students.put({ ...student, leaveDate: null, ...touchFields(actorId) });
         }
       }

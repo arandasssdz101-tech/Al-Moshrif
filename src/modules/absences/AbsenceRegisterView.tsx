@@ -1,4 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   Calendar,
@@ -28,7 +38,9 @@ import {
   buildClassAbsenceRegister,
   formatMonthTitle,
   type ClassAbsenceRegister,
+  type RegisterDailyTotal,
   type RegisterDayCell,
+  type RegisterDayInfo,
   type RegisterStudentRow,
 } from '@/utils/absenceRegister';
 import {
@@ -54,156 +66,143 @@ interface ZoomStyleConfig {
   namePx: number;
   daySubPx: number;
   sumPx: number;
-  tableText: string;
-  subHeaderText: string;
-  idxCol: string;
-  nameCol: string;
-  daySubCol: string;
-  sumCol: string;
-  totalCol: string;
-  cellBtn: string;
-  headCell: string;
-  namePad: string;
-  idxPad: string;
-  footerPad: string;
+  totalPx: number;
+  rowHPx: number;
+  fontPx: number;
+  subFontPx: number;
+  headPadYPx: number;
+  headPadXPx: number;
+  namePadXPx: number;
+  footerPadYPx: number;
 }
 
-const ZOOM_STYLES: Record<ZoomLevel, ZoomStyleConfig> = {
+const ZOOM_CONFIGS: Record<ZoomLevel, ZoomStyleConfig> = {
   30: {
     idxPx: 22,
     namePx: 76,
     daySubPx: 11,
     sumPx: 22,
-    tableText: 'text-[8px]',
-    subHeaderText: 'text-[8px]',
-    idxCol: 'w-[22px] min-w-[22px] max-w-[22px]',
-    nameCol: 'ltr:left-[22px] rtl:right-[22px] w-[76px] min-w-[76px] max-w-[76px]',
-    daySubCol: 'w-[11px] min-w-[11px]',
-    sumCol: 'w-[22px] min-w-[22px]',
-    totalCol: 'w-[24px] min-w-[24px]',
-    cellBtn: 'h-6 px-0',
-    headCell: 'px-0 py-0.5',
-    namePad: 'px-1 py-0.5',
-    idxPad: 'px-0.5 py-0.5',
-    footerPad: 'px-0.5 py-1',
+    totalPx: 24,
+    rowHPx: 24,
+    fontPx: 8,
+    subFontPx: 8,
+    headPadYPx: 2,
+    headPadXPx: 0,
+    namePadXPx: 4,
+    footerPadYPx: 4,
   },
   45: {
     idxPx: 24,
     namePx: 84,
     daySubPx: 14,
     sumPx: 26,
-    tableText: 'text-[9px]',
-    subHeaderText: 'text-[9px]',
-    idxCol: 'w-6 min-w-[1.5rem] max-w-[1.5rem]',
-    nameCol: 'ltr:left-6 rtl:right-6 w-[84px] min-w-[84px] max-w-[84px]',
-    daySubCol: 'w-3.5 min-w-[0.875rem]',
-    sumCol: 'w-[26px] min-w-[26px]',
-    totalCol: 'w-7 min-w-[1.75rem]',
-    cellBtn: 'h-7 px-0',
-    headCell: 'px-0.5 py-0.5',
-    namePad: 'px-1.5 py-1',
-    idxPad: 'px-0.5 py-1',
-    footerPad: 'px-0.5 py-1.5',
+    totalPx: 28,
+    rowHPx: 28,
+    fontPx: 9,
+    subFontPx: 9,
+    headPadYPx: 2,
+    headPadXPx: 2,
+    namePadXPx: 6,
+    footerPadYPx: 6,
   },
   60: {
     idxPx: 28,
     namePx: 92,
     daySubPx: 18,
     sumPx: 32,
-    tableText: 'text-[10px]',
-    subHeaderText: 'text-[9px]',
-    idxCol: 'w-7 min-w-[1.75rem] max-w-[1.75rem]',
-    nameCol: 'ltr:left-7 rtl:right-7 w-[92px] min-w-[92px] max-w-[92px]',
-    daySubCol: 'w-[18px] min-w-[18px]',
-    sumCol: 'w-8 min-w-[2rem]',
-    totalCol: 'w-9 min-w-[2.25rem]',
-    cellBtn: 'h-7 px-0.5',
-    headCell: 'px-0.5 py-1',
-    namePad: 'px-1.5 py-1',
-    idxPad: 'px-1 py-1',
-    footerPad: 'px-1 py-1.5',
+    totalPx: 36,
+    rowHPx: 28,
+    fontPx: 10,
+    subFontPx: 9,
+    headPadYPx: 4,
+    headPadXPx: 2,
+    namePadXPx: 6,
+    footerPadYPx: 6,
   },
   75: {
     idxPx: 28,
     namePx: 100,
     daySubPx: 24,
     sumPx: 36,
-    tableText: 'text-[11px]',
-    subHeaderText: 'text-[10px]',
-    idxCol: 'w-7 min-w-[1.75rem] max-w-[1.75rem]',
-    nameCol: 'ltr:left-7 rtl:right-7 w-[100px] min-w-[100px] max-w-[100px]',
-    daySubCol: 'w-6 min-w-[1.5rem]',
-    sumCol: 'w-9 min-w-[2.25rem]',
-    totalCol: 'w-10 min-w-[2.5rem]',
-    cellBtn: 'h-8 px-0.5',
-    headCell: 'px-1 py-1',
-    namePad: 'px-2 py-1',
-    idxPad: 'px-1 py-1',
-    footerPad: 'px-1 py-1.5',
+    totalPx: 40,
+    rowHPx: 32,
+    fontPx: 11,
+    subFontPx: 10,
+    headPadYPx: 4,
+    headPadXPx: 4,
+    namePadXPx: 8,
+    footerPadYPx: 6,
   },
   100: {
     idxPx: 32,
     namePx: 112,
     daySubPx: 28,
     sumPx: 42,
-    tableText: 'text-xs',
-    subHeaderText: 'text-[11px]',
-    idxCol: 'w-8 min-w-[2rem] max-w-[2rem]',
-    nameCol: 'ltr:left-8 rtl:right-8 w-28 min-w-[7rem] max-w-[7rem]',
-    daySubCol: 'w-7 min-w-[1.75rem]',
-    sumCol: 'w-[42px] min-w-[42px]',
-    totalCol: 'w-12 min-w-[3rem]',
-    cellBtn: 'h-9 px-1',
-    headCell: 'px-1 py-1.5',
-    namePad: 'px-2 py-1.5',
-    idxPad: 'px-1 py-1.5',
-    footerPad: 'px-1.5 py-2',
+    totalPx: 48,
+    rowHPx: 36,
+    fontPx: 12,
+    subFontPx: 11,
+    headPadYPx: 6,
+    headPadXPx: 4,
+    namePadXPx: 8,
+    footerPadYPx: 8,
   },
   125: {
     idxPx: 36,
     namePx: 136,
     daySubPx: 36,
     sumPx: 48,
-    tableText: 'text-sm',
-    subHeaderText: 'text-xs',
-    idxCol: 'w-9 min-w-[2.25rem] max-w-[2.25rem]',
-    nameCol: 'ltr:left-9 rtl:right-9 w-[136px] min-w-[136px] max-w-[136px]',
-    daySubCol: 'w-9 min-w-[2.25rem]',
-    sumCol: 'w-12 min-w-[3rem]',
-    totalCol: 'w-14 min-w-[3.5rem]',
-    cellBtn: 'h-10 px-1',
-    headCell: 'px-1.5 py-1.5',
-    namePad: 'px-2.5 py-1.5',
-    idxPad: 'px-1.5 py-1.5',
-    footerPad: 'px-1.5 py-2',
+    totalPx: 56,
+    rowHPx: 40,
+    fontPx: 14,
+    subFontPx: 12,
+    headPadYPx: 6,
+    headPadXPx: 6,
+    namePadXPx: 10,
+    footerPadYPx: 8,
   },
   150: {
     idxPx: 40,
     namePx: 152,
     daySubPx: 44,
     sumPx: 56,
-    tableText: 'text-base',
-    subHeaderText: 'text-xs',
-    idxCol: 'w-10 min-w-[2.5rem] max-w-[2.5rem]',
-    nameCol: 'ltr:left-10 rtl:right-10 w-[152px] min-w-[152px] max-w-[152px]',
-    daySubCol: 'w-11 min-w-[2.75rem]',
-    sumCol: 'w-14 min-w-[3.5rem]',
-    totalCol: 'w-16 min-w-[4rem]',
-    cellBtn: 'h-11 px-1.5',
-    headCell: 'px-2 py-2',
-    namePad: 'px-3 py-2',
-    idxPad: 'px-1.5 py-2',
-    footerPad: 'px-2 py-2',
+    totalPx: 64,
+    rowHPx: 44,
+    fontPx: 16,
+    subFontPx: 12,
+    headPadYPx: 8,
+    headPadXPx: 8,
+    namePadXPx: 12,
+    footerPadYPx: 8,
   },
 };
+
+function zoomCssVariables(zoom: ZoomLevel): CSSProperties {
+  const cfg = ZOOM_CONFIGS[zoom];
+  return {
+    '--reg-idx-w': `${cfg.idxPx}px`,
+    '--reg-name-w': `${cfg.namePx}px`,
+    '--reg-sub-w': `${cfg.daySubPx}px`,
+    '--reg-sum-w': `${cfg.sumPx}px`,
+    '--reg-total-w': `${cfg.totalPx}px`,
+    '--reg-row-h': `${cfg.rowHPx}px`,
+    '--reg-font': `${cfg.fontPx}px`,
+    '--reg-sub-font': `${cfg.subFontPx}px`,
+    '--reg-head-py': `${cfg.headPadYPx}px`,
+    '--reg-head-px': `${cfg.headPadXPx}px`,
+    '--reg-name-px': `${cfg.namePadXPx}px`,
+    '--reg-footer-py': `${cfg.footerPadYPx}px`,
+  } as CSSProperties;
+}
 
 function computeFitZoom(dayCount: number, availableWidth: number): ZoomLevel {
   if (availableWidth <= 0 || dayCount <= 0) return 45;
   for (let i = ZOOM_LEVELS.length - 1; i >= 0; i -= 1) {
     const level = ZOOM_LEVELS[i];
     if (level > 100) continue;
-    const cfg = ZOOM_STYLES[level];
-    const estimated = cfg.idxPx + cfg.namePx + dayCount * 2 * cfg.daySubPx + cfg.sumPx * 3 + 12;
+    const cfg = ZOOM_CONFIGS[level];
+    const estimated =
+      cfg.idxPx + cfg.namePx + dayCount * 2 * cfg.daySubPx + cfg.sumPx * 2 + cfg.totalPx + 12;
     if (estimated <= availableWidth) return level;
   }
   return ZOOM_LEVELS[0];
@@ -260,6 +259,8 @@ export function AbsenceRegisterView({
 
   const inlineScrollRef = useRef<HTMLDivElement | null>(null);
   const fullscreenScrollRef = useRef<HTMLDivElement | null>(null);
+  const detailOpenRef = useRef(false);
+  detailOpenRef.current = detail !== null;
 
   const validMonth = isMonthValue(month);
   const activeClass =
@@ -272,13 +273,13 @@ export function AbsenceRegisterView({
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && detail === null) {
+      if (event.key === 'Escape' && !detailOpenRef.current) {
         setFullscreen(false);
       }
     };
     window.addEventListener('keydown', onKeyDown);
     const removeBackHandler = registerAndroidBackHandler(() => {
-      if (detail !== null) return false;
+      if (detailOpenRef.current) return false;
       setFullscreen(false);
       return true;
     });
@@ -287,7 +288,7 @@ export function AbsenceRegisterView({
       window.removeEventListener('keydown', onKeyDown);
       removeBackHandler();
     };
-  }, [fullscreen, detail]);
+  }, [fullscreen]);
 
   const register: ClassAbsenceRegister | null = useMemo(() => {
     if (!validMonth || !activeClass) return null;
@@ -323,6 +324,40 @@ export function AbsenceRegisterView({
     });
   }, [register, search, filterMode]);
 
+  const handleInspectCell = useCallback(
+    (rowIdx: number, dayIdx: number) => {
+      if (!register) return;
+      const row = filteredRows[rowIdx];
+      const cell = row?.days[dayIdx];
+      const dayInfo = register.days[dayIdx];
+      if (!row || !cell) return;
+      setDetail({
+        row,
+        cell,
+        isSchoolDay: dayInfo?.isSchoolDay ?? true,
+        isHoliday: dayInfo?.isHoliday ?? false,
+      });
+    },
+    [register, filteredRows],
+  );
+
+  const tableLabels = useMemo(
+    () => ({
+      colIndex: t('absences.register.colIndex'),
+      colFullName: t('absences.register.colFullName'),
+      colDaysHeader: t('absences.register.colDaysHeader'),
+      colMonthlyTotal: t('absences.register.colMonthlyTotal'),
+      shortMorning: t('absences.register.shortMorning'),
+      shortEvening: t('absences.register.shortEvening'),
+      colTotal: t('absences.register.colTotal'),
+      footerTotal: t('absences.register.footerTotal'),
+      leftBadge: t('absences.register.leftBadge'),
+    }),
+    [t],
+  );
+
+  const tableStyle = useMemo(() => zoomCssVariables(zoom), [zoom]);
+
   if (activeClass === null) {
     return (
       <EmptyState
@@ -350,14 +385,14 @@ export function AbsenceRegisterView({
     classLabel: t('absences.register.classLabel'),
     schoolYearLabel: t('absences.register.schoolYearLabel'),
     legendText: t('absences.register.legendText'),
-    colIndex: t('absences.register.colIndex'),
-    colFullName: t('absences.register.colFullName'),
-    colDaysHeader: t('absences.register.colDaysHeader'),
-    colMonthlyTotal: t('absences.register.colMonthlyTotal'),
-    shortMorning: t('absences.register.shortMorning'),
-    shortEvening: t('absences.register.shortEvening'),
-    colTotal: t('absences.register.colTotal'),
-    footerTotal: t('absences.register.footerTotal'),
+    colIndex: tableLabels.colIndex,
+    colFullName: tableLabels.colFullName,
+    colDaysHeader: tableLabels.colDaysHeader,
+    colMonthlyTotal: tableLabels.colMonthlyTotal,
+    shortMorning: tableLabels.shortMorning,
+    shortEvening: tableLabels.shortEvening,
+    colTotal: tableLabels.colTotal,
+    footerTotal: tableLabels.footerTotal,
     filePrefix: t('absences.register.filePrefix'),
   };
 
@@ -413,21 +448,19 @@ export function AbsenceRegisterView({
   const handleFitMonth = () => {
     if (!register) return;
     const targetRef = fullscreen ? fullscreenScrollRef.current : inlineScrollRef.current;
-    const width = targetRef?.clientWidth ?? (typeof window !== 'undefined' ? window.innerWidth - 32 : 1024);
+    const width =
+      targetRef?.clientWidth ?? (typeof window !== 'undefined' ? window.innerWidth - 32 : 1024);
     setZoom(computeFitZoom(register.days.length, width));
   };
 
   const handleEnterFullscreen = () => {
-    setFullscreen(true);
-    if (register && typeof window !== 'undefined') {
-      requestAnimationFrame(() => {
-        const width = fullscreenScrollRef.current?.clientWidth ?? window.innerWidth;
-        setZoom(computeFitZoom(register.days.length, width));
-      });
+    if (!register) return;
+    if (typeof window !== 'undefined') {
+      const fitWidth = Math.max(320, window.innerWidth - 16);
+      setZoom(computeFitZoom(register.days.length, fitWidth));
     }
+    setFullscreen(true);
   };
-
-  const zoomCfg = ZOOM_STYLES[zoom];
 
   const zoomControls = (
     <div className="flex flex-wrap items-center gap-1.5">
@@ -447,7 +480,7 @@ export function AbsenceRegisterView({
           onClick={() => setZoom(100)}
           title={t('absences.register.resetZoom')}
           aria-label={t('absences.register.resetZoom')}
-          className="min-w-[3.25rem] px-2 py-1 text-center text-xs font-bold text-neutral-900 tabular-nums transition hover:bg-neutral-100 rounded-lg"
+          className="min-w-[3.25rem] rounded-lg px-2 py-1 text-center text-xs font-bold text-neutral-900 tabular-nums transition hover:bg-neutral-100"
         >
           {zoom}%
         </button>
@@ -478,7 +511,13 @@ export function AbsenceRegisterView({
         variant={fullscreen ? 'primary' : 'secondary'}
         disabled={!register}
         onClick={fullscreen ? () => setFullscreen(false) : handleEnterFullscreen}
-        icon={fullscreen ? <Minimize2 className="size-4" aria-hidden /> : <Maximize2 className="size-4" aria-hidden />}
+        icon={
+          fullscreen ? (
+            <Minimize2 className="size-4" aria-hidden />
+          ) : (
+            <Maximize2 className="size-4" aria-hidden />
+          )
+        }
       >
         {fullscreen ? t('absences.register.exitFullscreen') : t('absences.register.fullscreen')}
       </Button>
@@ -488,10 +527,18 @@ export function AbsenceRegisterView({
   const renderRegisterTable = (isFullscreenMode: boolean) => {
     if (!register) return null;
     if (register.rows.length === 0) {
-      return <p className="px-4 py-8 text-center text-sm text-neutral-600">{t('absences.register.noStudents')}</p>;
+      return (
+        <p className="px-4 py-8 text-center text-sm text-neutral-600">
+          {t('absences.register.noStudents')}
+        </p>
+      );
     }
     if (filteredRows.length === 0) {
-      return <p className="px-4 py-8 text-center text-sm text-neutral-600">{t('absences.register.noAbsentStudents')}</p>;
+      return (
+        <p className="px-4 py-8 text-center text-sm text-neutral-600">
+          {t('absences.register.noAbsentStudents')}
+        </p>
+      );
     }
 
     return (
@@ -499,190 +546,41 @@ export function AbsenceRegisterView({
         ref={isFullscreenMode ? fullscreenScrollRef : inlineScrollRef}
         className={`${
           isFullscreenMode ? 'flex-1 overflow-auto' : 'max-h-[72vh] overflow-auto'
-        } overscroll-contain [scrollbar-width:thin]`}
+        } overscroll-contain [contain:layout_style] [scrollbar-width:thin]`}
       >
-        <table className={`w-max min-w-full border-collapse tabular-nums ${zoomCfg.tableText}`}>
-          <thead className="sticky top-0 z-30">
-            {/* Row 1 of table header */}
-            <tr className="bg-[#1f3864] text-[#ffffff]">
-              <th
-                rowSpan={3}
-                className={`sticky ltr:left-0 rtl:right-0 z-40 border border-[#475569] bg-[#1f3864] text-center font-bold whitespace-nowrap ${zoomCfg.idxCol} ${zoomCfg.idxPad}`}
-              >
-                {t('absences.register.colIndex')}
-              </th>
-              <th
-                rowSpan={3}
-                className={`sticky z-40 border border-[#475569] bg-[#1f3864] text-start font-bold whitespace-nowrap ${zoomCfg.nameCol} ${zoomCfg.namePad}`}
-              >
-                {t('absences.register.colFullName')}
-              </th>
-              <th
-                colSpan={register.days.length * 2}
-                className={`border border-[#475569] bg-[#1f3864] text-center font-bold ${zoomCfg.headCell}`}
-              >
-                {t('absences.register.colDaysHeader')}
-              </th>
-              <th
-                colSpan={3}
-                rowSpan={2}
-                className={`border border-[#475569] bg-[#1f3864] text-center font-bold whitespace-nowrap ${zoomCfg.headCell}`}
-              >
-                {t('absences.register.colMonthlyTotal')}
-              </th>
-            </tr>
-
-            {/* Row 2: Day numbers (1..daysInMonth) */}
-            <tr className="bg-[#1f3864] text-[#ffffff]">
-              {register.days.map((dayInfo) => (
-                <th
-                  key={dayInfo.day}
-                  colSpan={2}
-                  title={dayInfo.date}
-                  className={`border border-[#475569] text-center font-bold ${zoomCfg.headCell} ${
-                    dayInfo.isSchoolDay ? 'bg-[#1f3864]' : 'bg-[#334155]'
-                  }`}
-                >
-                  {dayInfo.day}
-                </th>
-              ))}
-            </tr>
-
-            {/* Row 3: Morning (ص) & Evening (م) sub-columns */}
-            <tr className="bg-[#2b4c7e] text-[#ffffff]">
-              {register.days.map((dayInfo) => (
-                <FragmentDaySubHeaders
-                  key={dayInfo.day}
-                  dayInfo={dayInfo}
-                  morningLabel={t('absences.register.shortMorning')}
-                  eveningLabel={t('absences.register.shortEvening')}
-                  subColClass={zoomCfg.daySubCol}
-                  subTextClass={zoomCfg.subHeaderText}
-                />
-              ))}
-              <th
-                className={`border border-[#475569] bg-[#2b4c7e] text-center font-bold whitespace-nowrap ${zoomCfg.sumCol} ${zoomCfg.headCell}`}
-              >
-                {t('absences.register.shortMorning')}
-              </th>
-              <th
-                className={`border border-[#475569] bg-[#2b4c7e] text-center font-bold whitespace-nowrap ${zoomCfg.sumCol} ${zoomCfg.headCell}`}
-              >
-                {t('absences.register.shortEvening')}
-              </th>
-              <th
-                className={`border border-[#475569] bg-[#1e3a5f] text-center font-bold whitespace-nowrap ${zoomCfg.totalCol} ${zoomCfg.headCell}`}
-              >
-                {t('absences.register.colTotal')}
-              </th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {filteredRows.map((row) => (
-              <tr key={row.student.id} className="group transition hover:bg-neutral-50">
-                <td
-                  className={`sticky ltr:left-0 rtl:right-0 z-20 border border-neutral-300 bg-neutral-50 text-center font-bold text-neutral-700 group-hover:bg-neutral-100 ${zoomCfg.idxCol} ${zoomCfg.idxPad}`}
-                >
-                  {row.index}
-                </td>
-                <td
-                  className={`sticky z-20 border border-neutral-300 bg-white text-start font-medium text-neutral-900 group-hover:bg-neutral-50 ${zoomCfg.nameCol} ${zoomCfg.namePad}`}
-                >
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="truncate" title={row.fullName}>
-                      <strong className="font-bold">{row.student.lastName}</strong> {row.student.firstName}
-                    </span>
-                    {row.hasLeft && zoom >= 75 ? (
-                      <span className="shrink-0 text-[9px] text-neutral-500">
-                        ({t('absences.register.leftBadge')})
-                      </span>
-                    ) : null}
-                  </div>
-                </td>
-
-                {row.days.map((cellData, dayIdx) => {
-                  const dayInfo = register.days[dayIdx];
-                  const isSchool = dayInfo?.isSchoolDay ?? true;
-                  const cellBg = !isSchool ? 'bg-neutral-100/80' : 'bg-white';
-
-                  return (
-                    <FragmentDayCells
-                      key={cellData.day}
-                      cellData={cellData}
-                      baseBg={cellBg}
-                      subColClass={zoomCfg.daySubCol}
-                      btnClass={zoomCfg.cellBtn}
-                      onInspect={() =>
-                        setDetail({
-                          row,
-                          cell: cellData,
-                          isSchoolDay: isSchool,
-                          isHoliday: dayInfo?.isHoliday ?? false,
-                        })
-                      }
-                      ariaPrefix={`${row.fullName} - ${cellData.date}`}
-                      morningLabel={t('absences.register.shortMorning')}
-                      eveningLabel={t('absences.register.shortEvening')}
-                    />
-                  );
-                })}
-
-                <td
-                  className={`border border-neutral-300 bg-neutral-50 text-center font-semibold text-neutral-800 ${zoomCfg.sumCol} ${zoomCfg.idxPad}`}
-                >
-                  {row.morningTotal}
-                </td>
-                <td
-                  className={`border border-neutral-300 bg-neutral-50 text-center font-semibold text-neutral-800 ${zoomCfg.sumCol} ${zoomCfg.idxPad}`}
-                >
-                  {row.eveningTotal}
-                </td>
-                <td
-                  className={`border border-neutral-300 text-center font-bold ${zoomCfg.totalCol} ${zoomCfg.idxPad} ${
-                    row.totalHours > 0
-                      ? 'bg-danger-50 text-danger-800'
-                      : 'bg-neutral-100 text-neutral-700'
-                  }`}
-                >
-                  {row.totalHours}
-                </td>
-              </tr>
+        <table
+          style={tableStyle}
+          data-compact={zoom < 75 ? 'true' : undefined}
+          className="group/tbl w-max min-w-full table-fixed border-separate border-spacing-0 text-[length:var(--reg-font)] tabular-nums"
+        >
+          <colgroup>
+            <col className="w-[var(--reg-idx-w)]" />
+            <col className="w-[var(--reg-name-w)]" />
+            {register.days.map((dayInfo) => (
+              <FragmentDayCols key={dayInfo.day} />
             ))}
-          </tbody>
+            <col className="w-[var(--reg-sum-w)]" />
+            <col className="w-[var(--reg-sum-w)]" />
+            <col className="w-[var(--reg-total-w)]" />
+          </colgroup>
 
-          <tfoot>
-            <tr className="bg-neutral-100 font-bold text-neutral-900">
-              <td
-                colSpan={2}
-                className={`sticky ltr:left-0 rtl:right-0 z-20 border border-neutral-300 bg-neutral-100 text-center ${zoomCfg.namePad}`}
-              >
-                {t('absences.register.footerTotal')}
-              </td>
-              {register.dailyTotals.map((dayTotal, dayIdx) => {
-                const isSchool = register.days[dayIdx]?.isSchoolDay ?? true;
-                const bg = isSchool ? 'bg-neutral-100' : 'bg-neutral-200/70';
-                return (
-                  <FragmentDayFooter
-                    key={dayTotal.day}
-                    morning={dayTotal.morningHours}
-                    evening={dayTotal.eveningHours}
-                    bg={bg}
-                    padClass={zoomCfg.footerPad}
-                  />
-                );
-              })}
-              <td className={`border border-neutral-300 bg-neutral-200/70 text-center ${zoomCfg.footerPad}`}>
-                {register.totals.morningHours}
-              </td>
-              <td className={`border border-neutral-300 bg-neutral-200/70 text-center ${zoomCfg.footerPad}`}>
-                {register.totals.eveningHours}
-              </td>
-              <td className={`border border-neutral-300 bg-neutral-200 text-center text-danger-800 ${zoomCfg.footerPad}`}>
-                {register.totals.totalHours}
-              </td>
-            </tr>
-          </tfoot>
+          <RegisterTableHeader days={register.days} labels={tableLabels} />
+
+          <RegisterTableBody
+            rows={filteredRows}
+            days={register.days}
+            leftBadgeLabel={tableLabels.leftBadge}
+            morningLabel={tableLabels.shortMorning}
+            eveningLabel={tableLabels.shortEvening}
+            onInspectCell={handleInspectCell}
+          />
+
+          <RegisterTableFooter
+            days={register.days}
+            dailyTotals={register.dailyTotals}
+            totals={register.totals}
+            footerTotalLabel={tableLabels.footerTotal}
+          />
         </table>
       </div>
     );
@@ -882,7 +780,7 @@ export function AbsenceRegisterView({
               {/* Fullscreen Top Control Bar */}
               <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-300 bg-[#1f3864] px-3 py-2 text-[#ffffff]">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-bold sm:text-base whitespace-nowrap">
+                  <h2 className="whitespace-nowrap text-sm font-bold sm:text-base">
                     {t('absences.register.bannerTitle')}
                   </h2>
                   {data.classes.length > 1 ? (
@@ -1030,105 +928,371 @@ export function AbsenceRegisterView({
   );
 }
 
-function FragmentDaySubHeaders({
-  dayInfo,
-  morningLabel,
-  eveningLabel,
-  subColClass,
-  subTextClass,
-}: {
-  dayInfo: ClassAbsenceRegister['days'][number];
-  morningLabel: string;
-  eveningLabel: string;
-  subColClass: string;
-  subTextClass: string;
-}) {
-  const cls = dayInfo.isSchoolDay ? 'bg-[#2b4c7e]' : 'bg-[#334155]';
+const FragmentDayCols = memo(function FragmentDayCols() {
   return (
     <>
-      <th className={`border border-[#475569] px-0 py-0.5 text-center font-bold ${subColClass} ${subTextClass} ${cls}`}>
+      <col className="w-[var(--reg-sub-w)]" />
+      <col className="w-[var(--reg-sub-w)]" />
+    </>
+  );
+});
+
+interface TableLabels {
+  colIndex: string;
+  colFullName: string;
+  colDaysHeader: string;
+  colMonthlyTotal: string;
+  shortMorning: string;
+  shortEvening: string;
+  colTotal: string;
+  footerTotal: string;
+  leftBadge: string;
+}
+
+const RegisterTableHeader = memo(function RegisterTableHeader({
+  days,
+  labels,
+}: {
+  days: RegisterDayInfo[];
+  labels: TableLabels;
+}) {
+  return (
+    <thead className="sticky top-0 z-30">
+      <tr className="bg-[#1f3864] text-[#ffffff]">
+        <th
+          rowSpan={3}
+          className="sticky ltr:left-0 rtl:right-0 z-40 w-[var(--reg-idx-w)] min-w-[var(--reg-idx-w)] max-w-[var(--reg-idx-w)] border-y border-s border-e border-[#475569] bg-[#1f3864] px-[2px] py-[var(--reg-head-py)] text-center font-bold whitespace-nowrap"
+        >
+          {labels.colIndex}
+        </th>
+        <th
+          rowSpan={3}
+          className="sticky ltr:left-[var(--reg-idx-w)] rtl:right-[var(--reg-idx-w)] z-40 w-[var(--reg-name-w)] min-w-[var(--reg-name-w)] max-w-[var(--reg-name-w)] border-y border-e border-[#475569] bg-[#1f3864] px-[var(--reg-name-px)] py-[var(--reg-head-py)] text-start font-bold whitespace-nowrap"
+        >
+          {labels.colFullName}
+        </th>
+        <th
+          colSpan={days.length * 2}
+          className="border-y border-e border-[#475569] bg-[#1f3864] px-[var(--reg-head-px)] py-[var(--reg-head-py)] text-center font-bold"
+        >
+          {labels.colDaysHeader}
+        </th>
+        <th
+          colSpan={3}
+          rowSpan={2}
+          className="border-y border-e border-[#475569] bg-[#1f3864] px-[var(--reg-head-px)] py-[var(--reg-head-py)] text-center font-bold whitespace-nowrap"
+        >
+          {labels.colMonthlyTotal}
+        </th>
+      </tr>
+
+      <tr className="bg-[#1f3864] text-[#ffffff]">
+        {days.map((dayInfo) => (
+          <th
+            key={dayInfo.day}
+            colSpan={2}
+            title={dayInfo.date}
+            className={`border-b border-e border-[#475569] px-[var(--reg-head-px)] py-[var(--reg-head-py)] text-center font-bold ${
+              dayInfo.isSchoolDay ? 'bg-[#1f3864]' : 'bg-[#334155]'
+            }`}
+          >
+            {dayInfo.day}
+          </th>
+        ))}
+      </tr>
+
+      <tr className="bg-[#2b4c7e] text-[#ffffff]">
+        {days.map((dayInfo) => {
+          const cls = dayInfo.isSchoolDay ? 'bg-[#2b4c7e]' : 'bg-[#334155]';
+          return (
+            <FragmentDaySubHeaders
+              key={dayInfo.day}
+              morningLabel={labels.shortMorning}
+              eveningLabel={labels.shortEvening}
+              bgClass={cls}
+            />
+          );
+        })}
+        <th className="w-[var(--reg-sum-w)] min-w-[var(--reg-sum-w)] border-b border-e border-[#475569] bg-[#2b4c7e] px-[var(--reg-head-px)] py-[var(--reg-head-py)] text-center font-bold whitespace-nowrap">
+          {labels.shortMorning}
+        </th>
+        <th className="w-[var(--reg-sum-w)] min-w-[var(--reg-sum-w)] border-b border-e border-[#475569] bg-[#2b4c7e] px-[var(--reg-head-px)] py-[var(--reg-head-py)] text-center font-bold whitespace-nowrap">
+          {labels.shortEvening}
+        </th>
+        <th className="w-[var(--reg-total-w)] min-w-[var(--reg-total-w)] border-b border-e border-[#475569] bg-[#1e3a5f] px-[var(--reg-head-px)] py-[var(--reg-head-py)] text-center font-bold whitespace-nowrap">
+          {labels.colTotal}
+        </th>
+      </tr>
+    </thead>
+  );
+});
+
+function FragmentDaySubHeaders({
+  morningLabel,
+  eveningLabel,
+  bgClass,
+}: {
+  morningLabel: string;
+  eveningLabel: string;
+  bgClass: string;
+}) {
+  return (
+    <>
+      <th
+        className={`w-[var(--reg-sub-w)] min-w-[var(--reg-sub-w)] border-b border-e border-[#475569] px-0 py-0.5 text-center text-[length:var(--reg-sub-font)] font-bold ${bgClass}`}
+      >
         {morningLabel}
       </th>
-      <th className={`border border-[#475569] px-0 py-0.5 text-center font-bold ${subColClass} ${subTextClass} ${cls}`}>
+      <th
+        className={`w-[var(--reg-sub-w)] min-w-[var(--reg-sub-w)] border-b border-e border-[#475569] px-0 py-0.5 text-center text-[length:var(--reg-sub-font)] font-bold ${bgClass}`}
+      >
         {eveningLabel}
       </th>
     </>
   );
 }
 
-function FragmentDayCells({
-  cellData,
-  baseBg,
-  subColClass,
-  btnClass,
-  onInspect,
-  ariaPrefix,
+const RegisterTableBody = memo(function RegisterTableBody({
+  rows,
+  days,
+  leftBadgeLabel,
+  morningLabel,
+  eveningLabel,
+  onInspectCell,
+}: {
+  rows: RegisterStudentRow[];
+  days: RegisterDayInfo[];
+  leftBadgeLabel: string;
+  morningLabel: string;
+  eveningLabel: string;
+  onInspectCell: (rowIdx: number, dayIdx: number) => void;
+}) {
+  const handleClick = useCallback(
+    (event: ReactMouseEvent<HTMLTableSectionElement>) => {
+      const td = (event.target as HTMLElement).closest<HTMLTableCellElement>(
+        'td[data-row-idx][data-day-idx]',
+      );
+      if (!td) return;
+      const rowIdx = Number(td.dataset.rowIdx);
+      const dayIdx = Number(td.dataset.dayIdx);
+      if (!Number.isInteger(rowIdx) || !Number.isInteger(dayIdx)) return;
+      onInspectCell(rowIdx, dayIdx);
+    },
+    [onInspectCell],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLTableSectionElement>) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const td = (event.target as HTMLElement).closest<HTMLTableCellElement>(
+        'td[data-row-idx][data-day-idx]',
+      );
+      if (!td) return;
+      event.preventDefault();
+      const rowIdx = Number(td.dataset.rowIdx);
+      const dayIdx = Number(td.dataset.dayIdx);
+      if (!Number.isInteger(rowIdx) || !Number.isInteger(dayIdx)) return;
+      onInspectCell(rowIdx, dayIdx);
+    },
+    [onInspectCell],
+  );
+
+  return (
+    <tbody onClick={handleClick} onKeyDown={handleKeyDown}>
+      {rows.map((row, rowIdx) => (
+        <RegisterStudentRowItem
+          key={row.student.id}
+          row={row}
+          rowIdx={rowIdx}
+          days={days}
+          leftBadgeLabel={leftBadgeLabel}
+          morningLabel={morningLabel}
+          eveningLabel={eveningLabel}
+        />
+      ))}
+    </tbody>
+  );
+});
+
+const RegisterStudentRowItem = memo(function RegisterStudentRowItem({
+  row,
+  rowIdx,
+  days,
+  leftBadgeLabel,
   morningLabel,
   eveningLabel,
 }: {
-  cellData: RegisterDayCell;
-  baseBg: string;
-  subColClass: string;
-  btnClass: string;
-  onInspect: () => void;
-  ariaPrefix: string;
+  row: RegisterStudentRow;
+  rowIdx: number;
+  days: RegisterDayInfo[];
+  leftBadgeLabel: string;
   morningLabel: string;
   eveningLabel: string;
 }) {
-  const hasMorning = cellData.morningHours > 0;
-  const hasEvening = cellData.eveningHours > 0;
+  return (
+    <tr className="group hover:bg-neutral-50">
+      <td className="sticky ltr:left-0 rtl:right-0 z-20 h-[var(--reg-row-h)] w-[var(--reg-idx-w)] min-w-[var(--reg-idx-w)] max-w-[var(--reg-idx-w)] border-b border-s border-e border-neutral-300 bg-neutral-50 px-[2px] text-center font-bold text-neutral-700 group-hover:bg-neutral-100">
+        {row.index}
+      </td>
+      <td className="sticky ltr:left-[var(--reg-idx-w)] rtl:right-[var(--reg-idx-w)] z-20 h-[var(--reg-row-h)] w-[var(--reg-name-w)] min-w-[var(--reg-name-w)] max-w-[var(--reg-name-w)] border-b border-e border-neutral-300 bg-white px-[var(--reg-name-px)] text-start font-medium text-neutral-900 group-hover:bg-neutral-50">
+        <div className="flex items-center justify-between gap-1">
+          <span className="truncate" title={row.fullName}>
+            <strong className="font-bold">{row.student.lastName}</strong> {row.student.firstName}
+          </span>
+          {row.hasLeft ? (
+            <span className="shrink-0 text-[9px] text-neutral-500 group-data-[compact=true]/tbl:hidden">
+              ({leftBadgeLabel})
+            </span>
+          ) : null}
+        </div>
+      </td>
 
+      {row.days.map((cellData, dayIdx) => {
+        const isSchool = days[dayIdx]?.isSchoolDay ?? true;
+        const baseBg = isSchool ? 'bg-white' : 'bg-neutral-100';
+        const hasMorning = cellData.morningHours > 0;
+        const hasEvening = cellData.eveningHours > 0;
+        const ariaPrefix = `${row.fullName} - ${cellData.date}`;
+
+        return (
+          <FragmentDayCells
+            key={cellData.day}
+            rowIdx={rowIdx}
+            dayIdx={dayIdx}
+            morningHours={hasMorning ? cellData.morningHours : null}
+            eveningHours={hasEvening ? cellData.eveningHours : null}
+            baseBg={baseBg}
+            ariaMorning={`${ariaPrefix} (${morningLabel})`}
+            ariaEvening={`${ariaPrefix} (${eveningLabel})`}
+          />
+        );
+      })}
+
+      <td className="h-[var(--reg-row-h)] w-[var(--reg-sum-w)] min-w-[var(--reg-sum-w)] border-b border-e border-neutral-300 bg-neutral-50 px-[2px] text-center font-semibold text-neutral-800">
+        {row.morningTotal}
+      </td>
+      <td className="h-[var(--reg-row-h)] w-[var(--reg-sum-w)] min-w-[var(--reg-sum-w)] border-b border-e border-neutral-300 bg-neutral-50 px-[2px] text-center font-semibold text-neutral-800">
+        {row.eveningTotal}
+      </td>
+      <td
+        className={`h-[var(--reg-row-h)] w-[var(--reg-total-w)] min-w-[var(--reg-total-w)] border-b border-e border-neutral-300 px-[2px] text-center font-bold ${
+          row.totalHours > 0 ? 'bg-danger-50 text-danger-800' : 'bg-neutral-100 text-neutral-700'
+        }`}
+      >
+        {row.totalHours}
+      </td>
+    </tr>
+  );
+});
+
+function FragmentDayCells({
+  rowIdx,
+  dayIdx,
+  morningHours,
+  eveningHours,
+  baseBg,
+  ariaMorning,
+  ariaEvening,
+}: {
+  rowIdx: number;
+  dayIdx: number;
+  morningHours: number | null;
+  eveningHours: number | null;
+  baseBg: string;
+  ariaMorning: string;
+  ariaEvening: string;
+}) {
   return (
     <>
       <td
-        className={`border border-neutral-300 p-0 text-center ${subColClass} ${
-          hasMorning ? 'bg-danger-50 text-danger-800 font-bold' : `${baseBg} text-neutral-400`
+        role="button"
+        tabIndex={0}
+        data-row-idx={rowIdx}
+        data-day-idx={dayIdx}
+        aria-label={ariaMorning}
+        className={`h-[var(--reg-row-h)] w-[var(--reg-sub-w)] min-w-[var(--reg-sub-w)] cursor-pointer select-none border-b border-e border-neutral-300 p-0 text-center align-middle hover:bg-primary-50/70 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 ${
+          morningHours !== null ? 'bg-danger-50 font-bold text-danger-800' : `${baseBg} text-neutral-400`
         }`}
       >
-        <button
-          type="button"
-          onClick={onInspect}
-          aria-label={`${ariaPrefix} (${morningLabel})`}
-          className={`flex w-full items-center justify-center transition hover:bg-primary-50/70 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 ${btnClass}`}
-        >
-          {hasMorning ? cellData.morningHours : ''}
-        </button>
+        {morningHours ?? ''}
       </td>
       <td
-        className={`border border-neutral-300 p-0 text-center ${subColClass} ${
-          hasEvening ? 'bg-danger-50 text-danger-800 font-bold' : `${baseBg} text-neutral-400`
+        role="button"
+        tabIndex={0}
+        data-row-idx={rowIdx}
+        data-day-idx={dayIdx}
+        aria-label={ariaEvening}
+        className={`h-[var(--reg-row-h)] w-[var(--reg-sub-w)] min-w-[var(--reg-sub-w)] cursor-pointer select-none border-b border-e border-neutral-300 p-0 text-center align-middle hover:bg-primary-50/70 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 ${
+          eveningHours !== null ? 'bg-danger-50 font-bold text-danger-800' : `${baseBg} text-neutral-400`
         }`}
       >
-        <button
-          type="button"
-          onClick={onInspect}
-          aria-label={`${ariaPrefix} (${eveningLabel})`}
-          className={`flex w-full items-center justify-center transition hover:bg-primary-50/70 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500 ${btnClass}`}
-        >
-          {hasEvening ? cellData.eveningHours : ''}
-        </button>
+        {eveningHours ?? ''}
       </td>
     </>
   );
 }
 
+const RegisterTableFooter = memo(function RegisterTableFooter({
+  days,
+  dailyTotals,
+  totals,
+  footerTotalLabel,
+}: {
+  days: RegisterDayInfo[];
+  dailyTotals: RegisterDailyTotal[];
+  totals: ClassAbsenceRegister['totals'];
+  footerTotalLabel: string;
+}) {
+  return (
+    <tfoot>
+      <tr className="bg-neutral-100 font-bold text-neutral-900">
+        <td
+          colSpan={2}
+          className="sticky ltr:left-0 rtl:right-0 z-20 border-b border-s border-e border-neutral-300 bg-neutral-100 px-[var(--reg-name-px)] py-[var(--reg-footer-py)] text-center"
+        >
+          {footerTotalLabel}
+        </td>
+        {dailyTotals.map((dayTotal, dayIdx) => {
+          const isSchool = days[dayIdx]?.isSchoolDay ?? true;
+          const bg = isSchool ? 'bg-neutral-100' : 'bg-neutral-200';
+          return (
+            <FragmentDayFooter
+              key={dayTotal.day}
+              morning={dayTotal.morningHours}
+              evening={dayTotal.eveningHours}
+              bg={bg}
+            />
+          );
+        })}
+        <td className="border-b border-e border-neutral-300 bg-neutral-200 px-[2px] py-[var(--reg-footer-py)] text-center">
+          {totals.morningHours}
+        </td>
+        <td className="border-b border-e border-neutral-300 bg-neutral-200 px-[2px] py-[var(--reg-footer-py)] text-center">
+          {totals.eveningHours}
+        </td>
+        <td className="border-b border-e border-neutral-300 bg-neutral-200 px-[2px] py-[var(--reg-footer-py)] text-center text-danger-800">
+          {totals.totalHours}
+        </td>
+      </tr>
+    </tfoot>
+  );
+});
+
 function FragmentDayFooter({
   morning,
   evening,
   bg,
-  padClass,
 }: {
   morning: number;
   evening: number;
   bg: string;
-  padClass: string;
 }) {
   return (
     <>
-      <td className={`border border-neutral-300 text-center ${padClass} ${bg}`}>
+      <td className={`border-b border-e border-neutral-300 px-0 py-[var(--reg-footer-py)] text-center ${bg}`}>
         {morning > 0 ? morning : ''}
       </td>
-      <td className={`border border-neutral-300 text-center ${padClass} ${bg}`}>
+      <td className={`border-b border-e border-neutral-300 px-0 py-[var(--reg-footer-py)] text-center ${bg}`}>
         {evening > 0 ? evening : ''}
       </td>
     </>

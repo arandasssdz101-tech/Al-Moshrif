@@ -45,15 +45,15 @@ async function loadHomeOverview(institutionId: string, today: string): Promise<H
     db.canteenEntries.where('institutionId').equals(institutionId).toArray(),
   ]);
 
-  const activeStudents = students.filter((item) => item.deletedAt === null);
-  const activeClasses = classes.filter((item) => item.deletedAt === null);
+  const activeStudents = students.filter((item) => item.deletedAt == null);
+  const activeClasses = classes.filter((item) => item.deletedAt == null);
   const absentStudentIds = new Set(
     absences
-      .filter((item) => item.deletedAt === null && item.date === today)
+      .filter((item) => item.deletedAt == null && item.date === today)
       .map((item) => item.studentId),
   );
   const acceptedCanteenToday = canteenEntries.filter(
-    (item) => item.deletedAt === null && item.date === today && item.result === 'accepted',
+    (item) => item.deletedAt == null && item.date === today && item.result === 'accepted',
   );
 
   return {

@@ -30,7 +30,12 @@ function ScaledPage({ html, onSectionClick }: { html: string; onSectionClick: (s
     if (!outer || !inner) return;
     const measure = () => {
       const scale = Math.min(1, outer.clientWidth / PAGE_WIDTH_PX);
-      setBox({ scale, height: inner.offsetHeight * scale });
+      const nextHeight = inner.offsetHeight * scale;
+      setBox((prev) =>
+        Math.abs(prev.scale - scale) < 0.0005 && Math.abs(prev.height - nextHeight) < 0.5
+          ? prev
+          : { scale, height: nextHeight },
+      );
     };
     measure();
     if (typeof ResizeObserver === 'undefined') {

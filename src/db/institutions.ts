@@ -9,7 +9,7 @@ export const DEFAULT_WORKING_DAYS = [0, 1, 2, 3, 4];
 
 export async function getInstitution(institutionId: string): Promise<Institution> {
   const institution = await db.institutions.get(institutionId);
-  if (!institution || institution.deletedAt !== null) {
+  if (!institution || institution.deletedAt != null) {
     throw new DomainError('errors.notFound');
   }
   return institution;

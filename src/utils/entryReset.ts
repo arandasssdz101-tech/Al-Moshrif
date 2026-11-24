@@ -34,7 +34,7 @@ function matchesEntrySession(
   session: EntryResetSessionScope,
   eveningStartTime?: string,
 ): boolean {
-  if (entry.deletedAt !== null || entry.date !== date) return false;
+  if (entry.deletedAt != null || entry.date !== date) return false;
   if (session === 'all') return true;
   if (entry.session) return entry.session === session;
   if (entry.time) return resolveEntrySession({ time: entry.time, session: entry.session }, eveningStartTime) === session;
@@ -47,7 +47,7 @@ function matchesAbsenceSession(
   session: EntryResetSessionScope,
   eveningStartTime?: string,
 ): boolean {
-  if (absence.deletedAt !== null || absence.date !== date) return false;
+  if (absence.deletedAt != null || absence.date !== date) return false;
   if (session === 'all') return true;
   if (typeof absence.period !== 'number') return true;
   return isPeriodInSession(absence.period, session, eveningStartTime);
@@ -61,7 +61,7 @@ export function countGateEntriesBySession(
   let morning = 0;
   let evening = 0;
   for (const item of entries) {
-    if (item.deletedAt !== null || item.date !== date) continue;
+    if (item.deletedAt != null || item.date !== date) continue;
     const resolved =
       item.session ?? (item.time ? resolveEntrySession({ time: item.time, session: item.session }, eveningStartTime) : 'morning');
     if (resolved === 'evening') evening += 1;
@@ -126,8 +126,8 @@ export function planGateDateReset(
     : [];
 
   const hasClosureState =
-    closure !== null &&
-    (closure.closed || closure.autoAbsencesSyncedAt !== null || closure.createdAbsenceIds.length > 0);
+    closure != null &&
+    (closure.closed || closure.autoAbsencesSyncedAt != null || closure.createdAbsenceIds.length > 0);
 
   return {
     entryIdsToDelete,

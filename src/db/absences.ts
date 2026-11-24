@@ -62,7 +62,7 @@ export async function loadAbsenceWorkspace(institutionId: string, actorId: strin
     ]);
   const visibleClasses = classes
     .filter((schoolClass) => schoolClass.deletedAt == null && canAccessClass(access, schoolClass.id))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }));
   const visibleClassIds = new Set(visibleClasses.map((item) => item.id));
   const visibleStudents = students.filter(
     (student) => student.deletedAt == null && visibleClassIds.has(student.classId),
@@ -88,11 +88,11 @@ export async function loadAbsenceWorkspace(institutionId: string, actorId: strin
           (visibleClassIds.has(record.classId) || visibleStudentIds.has(record.studentId)),
       )
       .sort((a, b) => b.startDate.localeCompare(a.startDate)),
-    teachers: teachers.filter((teacher) => teacher.deletedAt == null).sort((a, b) => a.name.localeCompare(b.name)),
+    teachers: teachers.filter((teacher) => teacher.deletedAt == null).sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
     teacherAbsences: teacherAbsences.filter((record) => record.deletedAt == null),
     supervisors: users
       .filter((user) => user.role === 'supervisor' && user.status === 'approved' && user.deletedAt == null)
-      .sort((a, b) => a.name.localeCompare(b.name)),
+      .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '')),
   };
 }
 
@@ -460,7 +460,7 @@ export async function saveTeacherAbsence(
 ): Promise<void> {
   await assertHeadActor(actorId);
   const teacher = await db.teachers.get(teacherId);
-  if (!teacher || teacher.deletedAt !== null) throw new DomainError('teachers.errors.notFound');
+  if (!teacher || teacher.deletedAt != null) throw new DomainError('teachers.errors.notFound');
   const institution = await getInstitution(institutionId);
   assertValidDate(date, institution.workingDays);
 
@@ -468,12 +468,12 @@ export async function saveTeacherAbsence(
     db.classes
       .where('institutionId')
       .equals(institutionId)
-      .filter((schoolClass) => schoolClass.deletedAt === null)
+      .filter((schoolClass) => schoolClass.deletedAt == null)
       .toArray(),
     db.timetableSlots
       .where('institutionId')
       .equals(institutionId)
-      .filter((slot) => slot.deletedAt === null && slotHasTeacher(slot, teacherId))
+      .filter((slot) => slot.deletedAt == null && slotHasTeacher(slot, teacherId))
       .toArray(),
   ]);
   const activeClassIds = new Set(classes.map((schoolClass) => schoolClass.id));
@@ -486,7 +486,7 @@ export async function saveTeacherAbsence(
     const existing = await db.teacherAbsences
       .where('teacherId')
       .equals(teacherId)
-      .filter((record) => record.deletedAt === null && record.date === date)
+      .filter((record) => record.deletedAt == null && record.date === date)
       .toArray();
     for (const record of existing) {
       await db.teacherAbsences.put({ ...record, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
@@ -508,7 +508,7 @@ export async function saveTeacherAbsence(
 export async function deleteTeacherAbsence(absenceId: string, actorId: string): Promise<void> {
   await assertHeadActor(actorId);
   const record = await db.teacherAbsences.get(absenceId);
-  if (!record || record.deletedAt !== null) throw new DomainError('errors.notFound');
+  if (!record || record.deletedAt != null) throw new DomainError('errors.notFound');
   await db.teacherAbsences.put({ ...record, deletedAt: new Date().toISOString(), ...touchFields(actorId) });
   emitAppDataChanged(['absences'], { date: record.date, reason: 'teacher-absence' });
 }
@@ -520,7 +520,7 @@ export async function restoreTeacherAbsence(absenceId: string, actorId: string):
   const clash = await db.teacherAbsences
     .where('teacherId')
     .equals(record.teacherId)
-    .filter((item) => item.deletedAt === null && item.date === record.date)
+    .filter((item) => item.deletedAt == null && item.date === record.date)
     .count();
   if (clash > 0) throw new DomainError('absences.errors.alreadyRecorded');
   await db.teacherAbsences.put({ ...record, deletedAt: null, ...touchFields(actorId) });

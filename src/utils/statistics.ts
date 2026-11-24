@@ -27,7 +27,7 @@ function addStudent(counts: GenderCounts, student: Student): void {
 }
 
 export function isStudentActive(student: Student, today: string): boolean {
-  return student.deletedAt === null && (student.leaveDate === null || student.leaveDate > today);
+  return student.deletedAt == null && (student.leaveDate == null || student.leaveDate > today);
 }
 
 export function buildClassStatistics(classes: SchoolClass[], students: Student[], today: string): ClassStatistics[] {

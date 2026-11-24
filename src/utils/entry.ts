@@ -6,6 +6,7 @@ import type {
   Institution,
   SchoolClass,
   Student,
+  StudentAbsence,
 } from '@/db/types';
 import { isEnrolledOn, isSchoolDay } from '@/utils/absenceReports';
 import { classLessonsForDay, weekdayOfDate, type LessonSlot } from '@/utils/absences';
@@ -266,7 +267,7 @@ export function decideGateScan(input: DecideGateScanInput): GateScanDecision {
   const existingAccepted = input.entriesForDate
     .filter(
       (entry) =>
-        entry.deletedAt === null &&
+        entry.deletedAt == null &&
         entry.date === input.date &&
         entry.studentId === student.id &&
         entry.result === 'accepted' &&
@@ -350,7 +351,7 @@ export function acceptedEntryByStudent(
 ): Map<string, EntrySummaryFields> {
   const map = new Map<string, EntrySummaryFields>();
   for (const entry of entries) {
-    if (entry.deletedAt !== null || entry.date !== date || entry.result !== 'accepted' || !entry.studentId) {
+    if (entry.deletedAt != null || entry.date !== date || entry.result !== 'accepted' || !entry.studentId) {
       continue;
     }
     if (session && resolveEntrySession(entry, eveningStartTime) !== session) {
@@ -371,7 +372,7 @@ export function computeEntryStats(
   session?: EntrySession,
   eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
 ): DailyEntryStats {
-  const enrolledStudents = students.filter((student) => student.deletedAt === null && isEnrolledOn(student, date));
+  const enrolledStudents = students.filter((student) => student.deletedAt == null && isEnrolledOn(student, date));
   const enrolledIds = new Set(enrolledStudents.map((student) => student.id));
   const scopedEntries = filterEntriesBySession(entries, session, eveningStartTime);
   const acceptedMap = acceptedEntryByStudent(scopedEntries, date, session, eveningStartTime);
@@ -388,7 +389,7 @@ export function computeEntryStats(
   let unknown = 0;
   let left = 0;
   for (const entry of scopedEntries) {
-    if (entry.deletedAt !== null || entry.date !== date) continue;
+    if (entry.deletedAt != null || entry.date !== date) continue;
     if (entry.result === 'duplicate') duplicates += 1;
     else if (entry.result === 'unknown') unknown += 1;
     else if (entry.result === 'left') left += 1;
@@ -463,13 +464,13 @@ export function computeClassEntryBreakdown(
   eveningStartTime: string = DEFAULT_ENTRY_SETTINGS.eveningStartTime,
 ): ClassEntryBreakdown {
   const activeClasses = classes
-    .filter((item) => item.deletedAt === null)
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    .filter((item) => item.deletedAt == null)
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }));
   const acceptedMap = acceptedEntryByStudent(entries, date, session, eveningStartTime);
 
   const enrolledByClass = new Map<string, string[]>();
   for (const student of students) {
-    if (student.deletedAt !== null || !isEnrolledOn(student, date)) continue;
+    if (student.deletedAt != null || !isEnrolledOn(student, date)) continue;
     const list = enrolledByClass.get(student.classId) ?? [];
     list.push(student.id);
     enrolledByClass.set(student.classId, list);
@@ -636,7 +637,7 @@ export function planAutoAbsencesForStart(input: {
   const acceptedMap = acceptedEntryByStudent(input.entries, input.date, input.session, eveningStart);
   const existingKeys = new Set(
     input.existingAbsences
-      .filter((item) => item.deletedAt === null)
+      .filter((item) => item.deletedAt == null)
       .map((item) => `${item.studentId}|${item.period}`),
   );
   const day = weekdayOfDate(input.date);
@@ -657,7 +658,7 @@ export function planAutoAbsencesForStart(input: {
 
   const planned: AutoAbsencePlanItem[] = [];
   for (const student of input.students) {
-    if (student.deletedAt !== null || !isEnrolledOn(student, input.date)) continue;
+    if (student.deletedAt != null || !isEnrolledOn(student, input.date)) continue;
     const lessons = getLessons(student.classId);
     if (lessons.length === 0) continue;
 
@@ -714,11 +715,11 @@ export function planStudentGateAbsenceSync(input: {
   session?: EntrySession;
   eveningStartTime?: string;
   slots: LessonSlot[];
-  existingStudentAbsences: { id: string; period: number; source?: 'manual' | 'gate'; deletedAt: string | null }[];
+  existingStudentAbsences: { id: string; period: number; source?: StudentAbsence['source']; deletedAt?: string | null }[];
   markLateMissedLessons: boolean;
 }): StudentGateAbsenceSyncPlan {
   const eveningStart = input.eveningStartTime ?? DEFAULT_ENTRY_SETTINGS.eveningStartTime;
-  const active = input.existingStudentAbsences.filter((item) => item.deletedAt === null);
+  const active = input.existingStudentAbsences.filter((item) => item.deletedAt == null);
   const missed =
     input.late && input.markLateMissedLessons
       ? computeLateMissedPeriods(

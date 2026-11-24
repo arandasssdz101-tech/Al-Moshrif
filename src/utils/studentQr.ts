@@ -69,7 +69,7 @@ export function formatCardBirthPlace(placeOfBirth: string | null | undefined): s
 }
 
 export function studentFullName(student: Pick<Student, 'firstName' | 'lastName'>): string {
-  return `${student.firstName} ${student.lastName}`.replace(/\s+/g, ' ').trim();
+  return `${student.firstName ?? ''} ${student.lastName ?? ''}`.replace(/\s+/g, ' ').trim();
 }
 
 function fnv1a32(input: string, seed: number): number {
@@ -338,7 +338,7 @@ export function matchStudentFromScan(
 ): Student | null {
   const cleaned = rawText.replace(/[\r\n]+/g, '').trim();
   if (!cleaned) return null;
-  const active = students.filter((student) => student.deletedAt === null);
+  const active = students.filter((student) => student.deletedAt == null);
 
   // 1. Structured EduTrack Student QR payload
   const parsed = parseStudentQrPayload(cleaned);

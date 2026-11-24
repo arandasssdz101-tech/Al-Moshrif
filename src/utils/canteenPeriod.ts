@@ -26,7 +26,7 @@ export function periodDates(mode: CanteenPeriodMode, anchor: string): string[] {
 export function acceptedEntryKeys(entries: CanteenEntry[]): Set<string> {
   return new Set(
     entries
-      .filter((entry) => entry.deletedAt === null && entry.result === 'accepted' && entry.studentId !== null)
+      .filter((entry) => entry.deletedAt == null && entry.result === 'accepted' && entry.studentId != null)
       .map((entry) => entryKey(entry.studentId as string, entry.date)),
   );
 }
@@ -67,7 +67,7 @@ export function buildPeriodRows(
 ): CanteenPeriodRow[] {
   const accepted = acceptedEntryKeys(entries);
   return students
-    .filter((student) => student.deletedAt === null && student.boardingStatus === 'half-boarder')
+    .filter((student) => student.deletedAt == null && student.boardingStatus === 'half-boarder')
     .map((student) => {
       const expectedDays = dates.filter(
         (date) => isCanteenTrackedDay(date, context) && isEnrolledOn(student, date),
@@ -103,9 +103,9 @@ export function splitMissedDays(row: CanteenPeriodRow, wholeDayAbsentKeys: Reado
 
 export function rejectedEntries(entries: CanteenEntry[], date: string, reason: CanteenRejectReason | 'all'): CanteenEntry[] {
   return entries
-    .filter((entry) => entry.deletedAt === null && entry.date === date && entry.result === 'rejected')
+    .filter((entry) => entry.deletedAt == null && entry.date === date && entry.result === 'rejected')
     .filter((entry) => reason === 'all' || entry.reason === reason)
-    .sort((a, b) => b.time.localeCompare(a.time));
+    .sort((a, b) => (b.time ?? '').localeCompare(a.time ?? ''));
 }
 
 export interface MonthlyClassCanteenRow {
@@ -131,13 +131,13 @@ export function buildMonthlyClassRows(
   const levelById = new Map(classes.map((c) => [c.id, c.level ?? null]));
   const halfBoardersByClass = new Map<string, Student[]>();
   for (const student of students) {
-    if (student.deletedAt !== null || student.boardingStatus !== 'half-boarder') continue;
+    if (student.deletedAt != null || student.boardingStatus !== 'half-boarder') continue;
     const list = halfBoardersByClass.get(student.classId) ?? [];
     list.push(student);
     halfBoardersByClass.set(student.classId, list);
   }
   return classes
-    .filter((c) => c.deletedAt === null)
+    .filter((c) => c.deletedAt == null)
     .map((schoolClass) => {
       const boarders = halfBoardersByClass.get(schoolClass.id) ?? [];
       let expected = 0;
@@ -164,7 +164,7 @@ export function buildMonthlyClassRows(
       };
     })
     .filter((row) => row.studentCount > 0)
-    .sort((a, b) => (a.level ?? 99) - (b.level ?? 99) || a.className.localeCompare(b.className, undefined, { numeric: true }));
+    .sort((a, b) => (a.level ?? 99) - (b.level ?? 99) || (a.className ?? '').localeCompare(b.className ?? '', undefined, { numeric: true }));
 }
 
 export function halfBoardersWithoutEntry(
@@ -177,7 +177,7 @@ export function halfBoardersWithoutEntry(
   const accepted = acceptedEntryKeys(entries);
   return students.filter(
     (student) =>
-      student.deletedAt === null &&
+      student.deletedAt == null &&
       student.boardingStatus === 'half-boarder' &&
       isEnrolledOn(student, date) &&
       !accepted.has(entryKey(student.id, date)),

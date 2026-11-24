@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
+import { registerAndroidBackHandler } from '@/utils/androidBack';
 
 interface BrowserBarcodeDetector {
   detect: (source: HTMLVideoElement) => Promise<{ rawValue?: string }[]>;
@@ -77,6 +78,24 @@ export function EntryCameraScanner({
   useEffect(() => {
     cooldownMsRef.current = Math.max(0, cooldownSeconds) * 1000;
   }, [cooldownSeconds]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExpanded(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    const removeBack = registerAndroidBackHandler(() => {
+      setExpanded(false);
+      return true;
+    });
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      removeBack();
+    };
+  }, [expanded]);
 
   const emitCode = useCallback((rawValue: string) => {
     const cleaned = rawValue.trim();

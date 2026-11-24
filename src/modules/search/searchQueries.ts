@@ -52,7 +52,7 @@ export async function searchStudents(
   let students = await db.students
     .where('institutionId')
     .equals(institutionId)
-    .filter((s) => s.deletedAt === null)
+    .filter((s) => s.deletedAt == null)
     .toArray();
 
   if (!access.isHead && access.searchScope === 'assigned') {
@@ -80,7 +80,7 @@ export async function searchStudents(
       gender: s.gender,
       boardingStatus: s.boardingStatus,
     }))
-    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+    .sort((a, b) => (a.lastName ?? '').localeCompare(b.lastName ?? '') || (a.firstName ?? '').localeCompare(b.firstName ?? ''));
 }
 
 export async function searchTeachers(
@@ -94,7 +94,7 @@ export async function searchTeachers(
   let teachers = await db.teachers
     .where('institutionId')
     .equals(institutionId)
-    .filter((t) => t.deletedAt === null)
+    .filter((t) => t.deletedAt == null)
     .toArray();
 
   const allClasses = await db.classes.where('institutionId').equals(institutionId).toArray();
@@ -118,7 +118,7 @@ export async function searchTeachers(
       const classNames = [...new Set(t.assignments.map((a) => classMap.get(a.classId) ?? ''))].filter(Boolean);
       return { id: t.id, name: t.name, subjects, classNames };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
 }
 
 export async function searchTimetables(
@@ -132,7 +132,7 @@ export async function searchTimetables(
   let slots = await db.timetableSlots
     .where('institutionId')
     .equals(institutionId)
-    .filter((s) => s.deletedAt === null)
+    .filter((s) => s.deletedAt == null)
     .toArray();
 
   if (!access.isHead && access.searchScope === 'assigned') {
@@ -170,7 +170,7 @@ export async function searchTimetables(
       teacherName: s.teacherId ? teacherMap.get(s.teacherId) ?? '' : '',
       roomName: s.roomId ? roomMap.get(s.roomId) ?? '' : '',
     }))
-    .sort((a, b) => a.className.localeCompare(b.className) || a.day - b.day || a.period - b.period);
+    .sort((a, b) => (a.className ?? '').localeCompare(b.className ?? '') || a.day - b.day || a.period - b.period);
 }
 
 export async function searchTeacherSchedule(
@@ -192,10 +192,10 @@ export async function searchTeacherSchedule(
   const classMap = new Map(classes.map((schoolClass) => [schoolClass.id, schoolClass.name]));
   const roomMap = new Map(rooms.map((room) => [room.id, room.name]));
   const matchingSlots = slots.filter(
-    (slot) => slot.deletedAt === null && slot.day === day && slot.period === period && (access.isHead || access.searchScope !== 'assigned' || visibleClassIds.has(slot.classId)),
+    (slot) => slot.deletedAt == null && slot.day === day && slot.period === period && (access.isHead || access.searchScope !== 'assigned' || visibleClassIds.has(slot.classId)),
   );
   const activeTeachers = teachers
-    .filter((teacher) => teacher.deletedAt === null)
+    .filter((teacher) => teacher.deletedAt == null)
     .filter((teacher) => !normalizedQuery || matchesQuery(teacher.name, query))
     .filter((teacher) => access.isHead || access.searchScope !== 'assigned' || teacher.assignments.some((assignment) => visibleClassIds.has(assignment.classId)));
 
@@ -214,7 +214,7 @@ export async function searchTeacherSchedule(
         period: slot.period,
       }));
     })
-    .sort((a, b) => a.name.localeCompare(b.name) || (a.className ?? '').localeCompare(b.className ?? ''));
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '') || (a.className ?? '').localeCompare(b.className ?? ''));
 }
 
 export type SearchTab = 'students' | 'teachers' | 'timetables';

@@ -66,11 +66,11 @@ export async function exportSupervisorBackupPackage(
     db.canteenEntries.where('institutionId').equals(institutionId).toArray(),
   ]);
 
-  const activeClasses = classes.filter((c) => c.deletedAt === null);
+  const activeClasses = classes.filter((c) => c.deletedAt == null);
   const classNameMap = Object.fromEntries(activeClasses.map((c) => [c.id, c.name]));
-  const roomNameMap = Object.fromEntries(rooms.filter((r) => r.deletedAt === null).map((r) => [r.id, r.name]));
+  const roomNameMap = Object.fromEntries(rooms.filter((r) => r.deletedAt == null).map((r) => [r.id, r.name]));
   const teacherNameMap = Object.fromEntries(
-    teachers.filter((t) => t.deletedAt === null).map((t) => [t.id, t.name]),
+    teachers.filter((t) => t.deletedAt == null).map((t) => [t.id, t.name]),
   );
 
   const isHead = actor.role === 'head';
@@ -280,7 +280,7 @@ export async function resolveRoomBookingConflict(
       await db.timetableSlots.put(updatedIncoming);
     } else if (resolution.action === 'accept_incoming') {
       const currentExisting = await db.timetableSlots.get(conflict.existingSlot.id);
-      if (currentExisting && currentExisting.deletedAt === null) {
+      if (currentExisting && currentExisting.deletedAt == null) {
         const clearedExisting = {
           ...clearSpecificRoomFromSlot(currentExisting, conflict.roomId),
           ...touch,
@@ -316,8 +316,8 @@ export async function getAvailableRoomsForSlot(
   ]);
   const freeIds = new Set(computeAvailableRooms(rooms, slots, day, period, excludeSlotId));
   return rooms
-    .filter((r) => r.deletedAt === null && freeIds.has(r.id))
-    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    .filter((r) => r.deletedAt == null && freeIds.has(r.id))
+    .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', undefined, { numeric: true }));
 }
 
 export interface ConsolidatedExportResult {
@@ -534,24 +534,24 @@ export async function importConsolidatedInstitutionPackage(
 export async function listNotifications(institutionId: string): Promise<AppNotification[]> {
   const rows = await db.notifications.where('institutionId').equals(institutionId).toArray();
   return rows
-    .filter((n) => n.deletedAt === null)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    .filter((n) => n.deletedAt == null)
+    .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
 }
 
 export async function countUnreadNotifications(institutionId: string): Promise<number> {
   const rows = await db.notifications.where('institutionId').equals(institutionId).toArray();
-  return rows.filter((n) => n.deletedAt === null && !n.read).length;
+  return rows.filter((n) => n.deletedAt == null && !n.read).length;
 }
 
 export async function markNotificationRead(notificationId: string, actorId: string): Promise<void> {
   const notif = await db.notifications.get(notificationId);
-  if (!notif || notif.deletedAt !== null) return;
+  if (!notif || notif.deletedAt != null) return;
   await db.notifications.put({ ...notif, read: true, ...touchFields(actorId) });
 }
 
 export async function markAllNotificationsRead(institutionId: string, actorId: string): Promise<void> {
   const rows = await db.notifications.where('institutionId').equals(institutionId).toArray();
-  const unread = rows.filter((n) => n.deletedAt === null && !n.read);
+  const unread = rows.filter((n) => n.deletedAt == null && !n.read);
   if (unread.length === 0) return;
   const touch = touchFields(actorId);
   await db.notifications.bulkPut(unread.map((n) => ({ ...n, read: true, ...touch })));

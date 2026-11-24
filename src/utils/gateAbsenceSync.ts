@@ -39,14 +39,14 @@ export function planGateEntryAbsenceSync(input: {
   const eveningAcceptedMap = acceptedEntryByStudent(input.entries, input.date, 'evening', input.eveningStartTime);
   const hasEveningSessionActivity = input.entries.some(
     (entry) =>
-      entry.deletedAt === null &&
+      entry.deletedAt == null &&
       entry.date === input.date &&
       entry.result === 'accepted' &&
       resolveEntrySession(entry, input.eveningStartTime) === 'evening',
   );
 
   const enrolledStudents = input.students.filter(
-    (student) => student.deletedAt === null && isEnrolledOn(student, input.date),
+    (student) => student.deletedAt == null && isEnrolledOn(student, input.date),
   );
   const day = weekdayOfDate(input.date);
 
@@ -68,7 +68,7 @@ export function planGateEntryAbsenceSync(input: {
     Pick<StudentAbsence, 'id' | 'studentId' | 'classId' | 'date' | 'period' | 'source' | 'status' | 'deletedAt'>[]
   >();
   for (const record of input.existingAbsences) {
-    if (record.deletedAt !== null || record.date !== input.date || record.status === 'late') continue;
+    if (record.deletedAt != null || record.date !== input.date || record.status === 'late') continue;
     const list = activeByStudent.get(record.studentId);
     if (list) list.push(record);
     else activeByStudent.set(record.studentId, [record]);
@@ -226,7 +226,7 @@ export function groupResettableDayAbsences(input: {
   let continuousRecordsCount = 0;
 
   for (const record of input.absences) {
-    if (record.deletedAt !== null || record.date !== input.date || record.status === 'late') continue;
+    if (record.deletedAt != null || record.date !== input.date || record.status === 'late') continue;
     if (record.source === 'continuous') {
       continuousRecordsCount += 1;
       continue;
@@ -274,9 +274,9 @@ export function groupResettableDayAbsences(input: {
     }))
     .sort(
       (a, b) =>
-        a.className.localeCompare(b.className, undefined, { numeric: true }) ||
-        a.lastName.localeCompare(b.lastName) ||
-        a.firstName.localeCompare(b.firstName),
+        (a.className ?? '').localeCompare(b.className ?? '', undefined, { numeric: true }) ||
+        (a.lastName ?? '').localeCompare(b.lastName ?? '') ||
+        (a.firstName ?? '').localeCompare(b.firstName ?? ''),
     );
 
   return {

@@ -79,7 +79,7 @@ export function EntryTodayTab({
     return students
       .filter(
         (student) =>
-          student.deletedAt === null &&
+          student.deletedAt == null &&
           student.classId === selectedClassId &&
           isEnrolledOn(student, date) &&
           !acceptedMap.has(student.id),
@@ -89,8 +89,8 @@ export function EntryTodayTab({
 
   const lateArrivals = useMemo(() => {
     return Array.from(acceptedMap.values())
-      .filter((entry) => entry.late && entry.studentId !== null)
-      .sort((a, b) => b.minutesLate - a.minutesLate || b.time.localeCompare(a.time))
+      .filter((entry) => entry.late && entry.studentId != null)
+      .sort((a, b) => b.minutesLate - a.minutesLate || (b.time ?? '').localeCompare(a.time ?? ''))
       .map((entry) => {
         const student = entry.studentId ? studentById.get(entry.studentId) : undefined;
         return {

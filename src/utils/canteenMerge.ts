@@ -18,7 +18,7 @@ export function buildCanteenExport(institutionId: string, entries: CanteenEntry[
     version: CANTEEN_EXPORT_VERSION,
     institutionId,
     exportedAt,
-    entries: entries.filter((entry) => entry.deletedAt === null),
+    entries: entries.filter((entry) => entry.deletedAt == null),
   };
 }
 
@@ -36,18 +36,20 @@ export function parseCanteenExport(text: string, institutionId: string): Canteen
 }
 
 function compareEarliest(a: CanteenEntry, b: CanteenEntry): number {
-  if (a.time !== b.time) return a.time.localeCompare(b.time);
-  return a.id.localeCompare(b.id);
+  const timeA = a.time ?? '';
+  const timeB = b.time ?? '';
+  if (timeA !== timeB) return timeA.localeCompare(timeB);
+  return (a.id ?? '').localeCompare(b.id ?? '');
 }
 
 export function planCanteenMerge(existing: CanteenEntry[], incoming: CanteenEntry[], updatedAt: string): CanteenEntry[] {
   const existingIds = new Set(existing.map((entry) => entry.id));
-  const liveExisting = existing.filter((entry) => entry.deletedAt === null);
-  const newcomers = incoming.filter((entry) => entry.deletedAt === null && !existingIds.has(entry.id));
+  const liveExisting = existing.filter((entry) => entry.deletedAt == null);
+  const newcomers = incoming.filter((entry) => entry.deletedAt == null && !existingIds.has(entry.id));
 
   const pool = new Map<string, CanteenEntry[]>();
   for (const entry of [...liveExisting, ...newcomers]) {
-    if (entry.result !== 'accepted' || entry.studentId === null) continue;
+    if (entry.result !== 'accepted' || entry.studentId == null) continue;
     const key = entryKey(entry.studentId, entry.date);
     pool.set(key, [...(pool.get(key) ?? []), entry]);
   }

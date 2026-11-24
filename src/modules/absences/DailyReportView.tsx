@@ -212,7 +212,7 @@ export function DailyReportView({ data }: DailyReportViewProps) {
           name: `${student.firstName} ${student.lastName}`,
           className: classById.get(student.classId) ?? '',
         }))
-        .sort((a, b) => a.className.localeCompare(b.className, undefined, { numeric: true }) || a.name.localeCompare(b.name))
+        .sort((a, b) => (a.className ?? '').localeCompare(b.className ?? '', undefined, { numeric: true }) || (a.name ?? '').localeCompare(b.name ?? ''))
     : [];
 
   const availableSupervisors = data.supervisors.map((item) => item.name);

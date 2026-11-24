@@ -218,7 +218,7 @@ export function AbsenceDashboardScreen({ onNavigate }: AbsenceDashboardScreenPro
     if (!data || !validSyncDate) return null;
     const entryStats = computeEntryStats(data.students, gateEntries, syncDate);
     const dayAbsences = data.studentAbsences.filter(
-      (record) => record.deletedAt === null && record.date === syncDate && record.status !== 'late',
+      (record) => record.deletedAt == null && record.date === syncDate && record.status !== 'late',
     );
     const absentStudentsCount = new Set(dayAbsences.map((item) => item.studentId)).size;
     return {

@@ -77,13 +77,13 @@ export function ScannedStudentSheet({
 
   const loadContext = async () => {
     const [slotRows, teacherRows, roomRows, absenceRows, canteenRows] = await Promise.all([
-      db.timetableSlots.where('classId').equals(student.classId).filter((slot) => slot.deletedAt === null).toArray(),
-      db.teachers.where('institutionId').equals(institution.id).filter((row) => row.deletedAt === null).toArray(),
-      db.rooms.where('institutionId').equals(institution.id).filter((row) => row.deletedAt === null).toArray(),
+      db.timetableSlots.where('classId').equals(student.classId).filter((slot) => slot.deletedAt == null).toArray(),
+      db.teachers.where('institutionId').equals(institution.id).filter((row) => row.deletedAt == null).toArray(),
+      db.rooms.where('institutionId').equals(institution.id).filter((row) => row.deletedAt == null).toArray(),
       db.studentAbsences
         .where('classId')
         .equals(student.classId)
-        .filter((row) => row.deletedAt === null && row.studentId === student.id && row.date === today)
+        .filter((row) => row.deletedAt == null && row.studentId === student.id && row.date === today)
         .toArray(),
       listCanteenEntries(institution.id, today),
     ]);

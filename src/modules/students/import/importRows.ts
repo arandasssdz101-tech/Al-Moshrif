@@ -184,7 +184,7 @@ export function buildPreviewRows({ rows, mapping, classes, existing, today }: Bu
   const existingByKey = new Map<string, Student>();
   const existingByCardCode = new Map<string, Student>();
   for (const student of existing) {
-    if (student.deletedAt !== null) continue;
+    if (student.deletedAt != null) continue;
     existingByKey.set(studentIdentityKey(student), student);
     const code = student.cardCode?.trim();
     if (code) existingByCardCode.set(code, student);
@@ -300,8 +300,8 @@ export function findExtraExistingStudents(existing: Student[], previewRows: Prev
     if (row.matchedStudentId) matchedIds.add(row.matchedStudentId);
   }
   return existing
-    .filter((student) => student.deletedAt === null && !matchedIds.has(student.id))
-    .sort((a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName));
+    .filter((student) => student.deletedAt == null && !matchedIds.has(student.id))
+    .sort((a, b) => (a.lastName ?? '').localeCompare(b.lastName ?? '') || (a.firstName ?? '').localeCompare(b.firstName ?? ''));
 }
 
 export interface StudentImportPlan {
@@ -317,7 +317,7 @@ export function planStudentImport(input: {
   mode: StudentImportMode;
   deleteExtraStudentIds?: string[];
 }): StudentImportPlan {
-  const activeExisting = input.existing.filter((student) => student.deletedAt === null);
+  const activeExisting = input.existing.filter((student) => student.deletedAt == null);
   const existingByKey = new Map<string, Student>();
   const existingByCardCode = new Map<string, Student>();
   for (const student of activeExisting) {
