@@ -1,4 +1,4 @@
-import { Download, Printer } from 'lucide-react';
+import { Download, FileText, Printer } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/Button';
 import type { ReportTable } from '@/modules/absences/reportTables';
@@ -69,18 +69,30 @@ export function ReportTableView({ table }: ReportTableViewProps) {
 
 interface ReportExportBarProps {
   onPrint: () => void;
+  onPdf?: () => void;
+  pdfPending?: boolean;
   onExcel: () => void;
 }
 
-export function ReportExportBar({ onPrint, onExcel }: ReportExportBarProps) {
+export function ReportExportBar({ onPrint, onPdf, pdfPending = false, onExcel }: ReportExportBarProps) {
   const { t } = useTranslation();
   return (
     <div className="flex flex-wrap gap-2">
-      <Button variant="secondary" onClick={onPrint} icon={<Printer className="size-4" aria-hidden />}>
-        {t('reports.printPdf')}
-      </Button>
+      {onPdf ? (
+        <Button
+          variant="secondary"
+          onClick={onPdf}
+          disabled={pdfPending}
+          icon={<FileText className="size-4" aria-hidden />}
+        >
+          {pdfPending ? t('reports.exportingPdf') : t('reports.exportPdf')}
+        </Button>
+      ) : null}
       <Button variant="secondary" onClick={onExcel} icon={<Download className="size-4" aria-hidden />}>
         {t('reports.exportExcel')}
+      </Button>
+      <Button variant="secondary" onClick={onPrint} icon={<Printer className="size-4" aria-hidden />}>
+        {t('reports.printPdf')}
       </Button>
     </div>
   );

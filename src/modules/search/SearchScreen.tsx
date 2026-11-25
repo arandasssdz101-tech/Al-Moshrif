@@ -33,6 +33,11 @@ export function SearchScreen() {
   const [timetables, setTimetables] = useState<TimetableSearchResult[]>([]);
   const [retryKey, setRetryKey] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -104,6 +109,7 @@ export function SearchScreen() {
         <div className="flex items-center gap-2 rounded-xl bg-white px-4 ring-1 ring-neutral-300 focus-within:ring-2 focus-within:ring-primary-200">
           <SearchIcon className="size-5 shrink-0 text-neutral-400" aria-hidden />
           <input
+            ref={inputRef}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -143,7 +149,7 @@ function StudentResults({ results }: { results: StudentSearchResult[] }) {
   const { t } = useTranslation();
   if (results.length === 0) return <p className="text-sm text-neutral-600">{t('search.noMatches')}</p>;
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {results.map((s) => (
         <li key={s.id} className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-primary-700">
@@ -163,7 +169,7 @@ function TeacherResults({ results }: { results: TeacherSearchResult[] }) {
   const { t } = useTranslation();
   if (results.length === 0) return <p className="text-sm text-neutral-600">{t('search.noMatches')}</p>;
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {results.map((tch) => (
         <li key={tch.id} className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary-100 text-secondary-700">
@@ -186,7 +192,7 @@ function TimetableResults({ results }: { results: TimetableSearchResult[] }) {
   const { t, i18n } = useTranslation();
   if (results.length === 0) return <p className="text-sm text-neutral-600">{t('search.noMatches')}</p>;
   return (
-    <ul className="flex flex-col gap-3">
+    <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
       {results.map((r) => (
         <li key={r.id} className="flex items-center gap-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-neutral-200">
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-accent-100 text-accent-700">

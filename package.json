@@ -6,9 +6,14 @@
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
+    "build:web": "VITE_WEB_BASE=/ vite build",
     "build:android": "vite build && npx cap sync android",
+    "build:android:apk": "vite build && npx cap sync android && cd android && ./gradlew assembleDebug",
+    "build:android:splits": "vite build && npx cap sync android && cd android && ./gradlew assembleDebug -PsplitAbi=true",
+    "build:android:aab": "vite build && npx cap sync android && cd android && ./gradlew bundleRelease",
     "lint": "eslint .",
     "preview": "vite preview",
+    "preview:web": "VITE_WEB_BASE=/ vite preview --port=4173 --host=0.0.0.0",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test": "vitest run"
   },

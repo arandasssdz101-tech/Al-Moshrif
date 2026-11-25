@@ -5,8 +5,10 @@ import type {
   Student,
 } from '../db/types';
 import {
-  deriveStableStudentCardKey,
+  buildKeyboardRecoveryCandidates,
   matchStudentByParsedQr,
+  matchStudentFromScan,
+  normalizeScannedCode,
   parseStudentQrPayload,
 } from './studentQr';
 
@@ -15,22 +17,34 @@ export function findStudentByCode(
   scanned: string,
   field: CanteenMatchField,
 ): Student | null {
-  const code = scanned.trim();
-  if (!code) return null;
-  const active = students.filter((student) => !student.deletedAt);
-  const parsedQr = parseStudentQrPayload(code);
-  if (parsedQr) {
-    return matchStudentByParsedQr(active, parsedQr);
+  const normalized = normalizeScannedCode(scanned, { convertAzertyDigits: true });
+  const trimmed = scanned.trim();
+  if (!normalized && !trimmed) return null;
+
+  if (field === 'studentId') {
+    const active = students.filter((student) => !student.deletedAt);
+    const candidates = [
+      normalized,
+      trimmed,
+      ...buildKeyboardRecoveryCandidates(trimmed),
+    ].filter((val, idx, arr) => Boolean(val) && arr.indexOf(val) === idx);
+
+    for (const candidate of candidates) {
+      const parsedQr = parseStudentQrPayload(candidate);
+      if (parsedQr) {
+        const matched = matchStudentByParsedQr(active, parsedQr);
+        if (matched) return matched;
+      }
+      const exact = active.find((student) => student.id === candidate);
+      if (exact) return exact;
+      const lower = candidate.toLowerCase();
+      const ci = active.find((student) => student.id.toLowerCase() === lower);
+      if (ci) return ci;
+    }
+    return null;
   }
-  return (
-    active.find((student) => {
-      if (field === 'studentId') return student.id === code;
-      return (
-        (student.cardCode ?? '').trim() === code ||
-        deriveStableStudentCardKey(student) === code
-      );
-    }) ?? null
-  );
+
+  return matchStudentFromScan(students, scanned, field);
 }
 
 export type ScanDecision =

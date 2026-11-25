@@ -174,6 +174,9 @@ export const DAILY_REPORT_CSS = `
 .dr-shade {
   background: #e5e7eb;
 }
+.dr-shade-subtle {
+  background: #f3f4f6;
+}
 .dr-dots {
   background-color: #e5e7eb;
   background-image: radial-gradient(#525252 0.5px, transparent 0.5px);
@@ -661,27 +664,25 @@ function renderParentsTable(rows: ParentCorrespondenceRow[]): string {
 
   return `<div class="dr-editable" data-edit="parents">
   <div class="dr-p2-heading">مراسلات الأولياء</div>
-  <table class="dr-table dr-p2-table"><thead>${head}</thead><tbody>${body}</tbody></table>
+  <table class="dr-table dr-p2-table" style="margin-bottom:0"><thead>${head}</thead><tbody>${body}</tbody></table>
 </div>`;
 }
 
 function renderPage2Notes(notes: PageNotesSlice): string {
-  const hasOverflow = Boolean(notes.counselor || notes.director);
-  const directorMinHeight = hasOverflow ? '14mm' : '36mm';
   return `<table class="dr-notes-table" style="margin-top:0">
   <colgroup>
-    <col style="width:20%">
-    <col style="width:60%">
+    <col style="width:22%">
+    <col style="width:58%">
     <col style="width:20%">
   </colgroup>
   <tbody>
-    <tr class="dr-editable" data-edit="counselor" style="height:24mm">
-      <td class="dr-notes-label">ملاحظات و اقتراحات<br/>مستشار التربية حول النظافة -<br/>الصيانة والإتلاف - الحوادث<br/>- النشاط الثقافي والرياضي -<br/>دروس الدعم - الزيارات</td>
+    <tr class="dr-editable" data-edit="counselor" style="height:50mm">
+      <td class="dr-notes-label dr-shade-subtle">ملاحظات و اقتراحات<br/>مستشار التربية حول النظافة -<br/>الصيانة والإتلاف - الحوادث<br/>- النشاط الثقافي والرياضي -<br/>دروس الدعم - الزيارات</td>
       <td class="dr-notes-body">${notes.counselor ? esc(notes.counselor) : '&nbsp;'}</td>
       <td class="dr-notes-sign">الامضاء</td>
     </tr>
-    <tr class="dr-editable" data-edit="director" style="height:${directorMinHeight}">
-      <td class="dr-notes-label">ملاحظات مدير المؤسسة</td>
+    <tr class="dr-editable" data-edit="director" style="height:24mm">
+      <td class="dr-notes-label dr-shade-subtle">ملاحظات مدير المؤسسة</td>
       <td class="dr-notes-body">${notes.director ? esc(notes.director) : '&nbsp;'}</td>
       <td class="dr-notes-sign">الامضاء</td>
     </tr>

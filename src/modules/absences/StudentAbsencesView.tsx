@@ -21,7 +21,7 @@ import { PERIODS } from '@/utils/schedule';
 import { todayIso } from '@/utils/dates';
 import { errorKey } from '@/utils/errors';
 import { isStudentActive } from '@/utils/statistics';
-import { currentPeriodNumber, matchStudentFromScan } from '@/utils/studentQr';
+import { currentPeriodNumber, matchStudentFromScan, normalizeScannedCode } from '@/utils/studentQr';
 
 type DraftEntries = Map<string, StudentAbsenceEntry>;
 
@@ -124,7 +124,7 @@ export function StudentAbsencesView({
   };
 
   const handleScanAbsence = async (rawCode: string) => {
-    const cleaned = rawCode.trim();
+    const cleaned = normalizeScannedCode(rawCode, { convertAzertyDigits: true }) || rawCode.trim();
     if (!cleaned || scanBusy || !cardAbsenceEnabled || !data.access.canEdit) return;
     setScanError(null);
     setScanNotice(null);

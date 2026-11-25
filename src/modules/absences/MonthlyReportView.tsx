@@ -7,6 +7,7 @@ import { ReportExportBar, ReportTableView } from '@/modules/absences/ReportTable
 import { monthlyReportTables, toWorkbookSheets } from '@/modules/absences/reportTables';
 import { isMonthValue } from '@/utils/absenceReports';
 import { todayIso } from '@/utils/dates';
+import { exportPrintableReportPdf } from '@/utils/reportPdf';
 import { exportSheetsToExcel } from '@/utils/spreadsheet';
 import { printReport } from '@/utils/printReport';
 
@@ -17,18 +18,35 @@ interface MonthlyReportViewProps {
 export function MonthlyReportView({ data }: MonthlyReportViewProps) {
   const { t, i18n } = useTranslation();
   const [month, setMonth] = useState(() => todayIso().slice(0, 7));
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfFailed, setPdfFailed] = useState(false);
   const validMonth = isMonthValue(month);
   const report = useMemo(() => (validMonth ? buildMonthlyReport(data, month) : null), [data, month, validMonth]);
   const tables = report ? monthlyReportTables(report, t) : [];
 
+  const printable = {
+    title: t('reports.monthly.title'),
+    subtitle: t('reports.monthly.subtitle', { month, days: report?.schoolDayCount ?? 0 }),
+    lang: i18n.language,
+    dir: i18n.dir() as 'ltr' | 'rtl',
+    sections: tables,
+  };
+
   const handlePrint = () => {
-    printReport({
-      title: t('reports.monthly.title'),
-      subtitle: t('reports.monthly.subtitle', { month, days: report?.schoolDayCount ?? 0 }),
-      lang: i18n.language,
-      dir: i18n.dir(),
-      sections: tables,
-    });
+    printReport(printable);
+  };
+
+  const handlePdf = async () => {
+    if (pdfExporting) return;
+    setPdfExporting(true);
+    setPdfFailed(false);
+    try {
+      await exportPrintableReportPdf(printable, `monthly-absence-report-${month}.pdf`);
+    } catch {
+      setPdfFailed(true);
+    } finally {
+      setPdfExporting(false);
+    }
   };
 
   const handleExcel = () => {
@@ -52,7 +70,13 @@ export function MonthlyReportView({ data }: MonthlyReportViewProps) {
       {report ? (
         <>
           <p className="text-sm text-neutral-600">{t('reports.monthly.formula')}</p>
-          <ReportExportBar onPrint={handlePrint} onExcel={handleExcel} />
+          <ReportExportBar
+            onPrint={handlePrint}
+            onPdf={() => void handlePdf()}
+            pdfPending={pdfExporting}
+            onExcel={handleExcel}
+          />
+          {pdfFailed ? <FormError message={t('reports.pdfFailed')} /> : null}
           {tables.map((table) => (
             <ReportTableView key={table.sheetName} table={table} />
           ))}

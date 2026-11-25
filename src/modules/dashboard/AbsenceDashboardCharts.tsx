@@ -45,13 +45,13 @@ interface ClassComparisonChartProps {
   useHoursFallback: boolean;
 }
 
-const COLOR_PRIMARY = 'rgb(var(--color-primary-600))';
-const COLOR_PRIMARY_SOFT = 'rgb(var(--color-primary-400))';
-const COLOR_DANGER = 'rgb(var(--color-danger-500))';
-const COLOR_WARNING = 'rgb(var(--color-warning-500))';
-const COLOR_SECONDARY = 'rgb(var(--color-secondary-500))';
-const COLOR_GRID = 'rgb(var(--color-neutral-200))';
-const COLOR_AXIS = 'rgb(var(--color-neutral-500))';
+const COLOR_PRIMARY = 'rgb(var(--color-primary-600-rgb))';
+const COLOR_PRIMARY_SOFT = 'rgb(var(--color-primary-400-rgb))';
+const COLOR_DANGER = 'rgb(var(--color-danger-500-rgb))';
+const COLOR_WARNING = 'rgb(var(--color-warning-500-rgb))';
+const COLOR_SECONDARY = 'rgb(var(--color-secondary-500-rgb))';
+const COLOR_GRID = 'rgb(var(--color-neutral-200-rgb))';
+const COLOR_AXIS = 'rgb(var(--color-neutral-500-rgb))';
 
 function formatShortDayMonth(isoDate: string, locale: string): string {
   return new Intl.DateTimeFormat(locale, {
@@ -273,7 +273,7 @@ export function WeeklyAbsenceChart({
                 strokeWidth={2.5}
                 fill={`url(#${gradientId}-total)`}
                 dot={{ r: 3.5, fill: COLOR_PRIMARY, strokeWidth: 0 }}
-                activeDot={{ r: 6, strokeWidth: 2, stroke: 'rgb(var(--color-surface))' }}
+                activeDot={{ r: 6, strokeWidth: 2, stroke: 'rgb(var(--color-surface-rgb))' }}
               />
             </AreaChart>
           )}
@@ -380,7 +380,7 @@ export function MonthlyAbsenceChart({
               tickFormatter={(val: number) => (useHoursFallback ? `${val}` : `${val}%`)}
             />
             <Tooltip
-              cursor={{ fill: 'rgb(var(--color-neutral-100) / 0.6)' }}
+              cursor={{ fill: 'rgba(var(--color-neutral-100-rgb), 0.6)' }}
               content={(props) => (
                 <PeriodTooltip
                   active={props.active}

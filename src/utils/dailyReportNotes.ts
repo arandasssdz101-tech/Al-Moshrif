@@ -22,15 +22,15 @@ const A4_HEIGHT_MM = 297;
 
 // Conservative character width budgets for 8pt Cairo/Arial inside the RTL notes body cells
 const PAGE1_CHARS_PER_LINE = 56;
-const PAGE2_CHARS_PER_LINE = 58;
+const PAGE2_CHARS_PER_LINE = 56;
 const EXTRA_PAGE_CHARS_PER_LINE = 58;
 const OBSERVATIONS_CHARS_PER_LINE = 92;
 
-// Minimum visual row heights driven by the row labels
+// Minimum visual row heights driven by the row labels and Page 2 layout
 const PAGE1_COUNSELOR_MIN_MM = 20;
 const PAGE1_DIRECTOR_MIN_MM = 10;
-const PAGE2_COUNSELOR_MIN_MM = 24;
-const PAGE2_DIRECTOR_MIN_MM = 12;
+const PAGE2_COUNSELOR_MIN_MM = 50;
+const PAGE2_DIRECTOR_MIN_MM = 24;
 
 export function wrapNoteToVisualLines(text: string, charsPerLine: number): VisualLine[] {
   const normalized = text.replace(/\r\n?/g, '\n');
@@ -175,7 +175,7 @@ export function estimatePage2NotesBudgetMm(render: DailyReportRender): number {
   const wholeDayTableMm = 129; // header + 30 rows + margin
   const parentsHeadingMm = 6;
   const parentRowsCount = Math.max(10, render.parentRows.length);
-  const parentsTableMm = (parentRowsCount + 1) * 4.1 + 1.8;
+  const parentsTableMm = (parentRowsCount + 1) * 4.1;
   const footerMm = 8.5;
   const safetyMm = 4;
 

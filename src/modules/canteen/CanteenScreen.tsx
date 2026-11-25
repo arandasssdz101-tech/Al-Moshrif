@@ -11,6 +11,7 @@ import { findStudentByCode, computeCanteenCounters, decideScan, type ScanDecisio
 import { useSession } from '@/modules/auth/AuthContext';
 import { errorKey } from '@/utils/errors';
 import { todayIso } from '@/utils/dates';
+import { normalizeScannedCode } from '@/utils/studentQr';
 import type { CanteenEntry, SchoolClass, Student } from '@/db/types';
 import { CardScanner, type ScannerDiagnostics as DiagData } from './CardScanner';
 import { CanteenDailyInfo } from './CanteenDailyInfo';
@@ -172,28 +173,10 @@ export function CanteenScreen() {
   };
 
   const handleScannedText = (rawText: string) => {
-    const sanitizedRaw = rawText.replace(/[\r\n]+/g, '').trim();
-    let lookupCode = sanitizedRaw;
-
-    if (lookupCode.includes('|')) {
-      const parts = lookupCode.split('|').map((p) => p.trim());
-      const data: Record<string, string> = {};
-      parts.forEach((part) => {
-        const colonIndex = part.indexOf(':');
-        if (colonIndex !== -1) {
-          const key = part.substring(0, colonIndex).trim();
-          const value = part.substring(colonIndex + 1).trim();
-          data[key] = value;
-        }
-      });
-
-      if (data['NIN'] && !data['ID']) {
-        lookupCode = data['NIN'];
-      }
-    }
-
-    const student = findStudentByCode(students, lookupCode, matchField);
-    void evaluate(student, rawText, false);
+    const normalized = normalizeScannedCode(rawText, { convertAzertyDigits: true }) || rawText.trim();
+    if (!normalized) return;
+    const student = findStudentByCode(students, normalized, matchField);
+    void evaluate(student, normalized, false);
   };
 
   const handleManualCode = (code: string) => {

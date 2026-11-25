@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildDailyReportWorkbook } from '@/utils/dailyExcel';
 import { buildDailyReportHtml, type DailyReportRender } from '@/utils/dailyReportHtml';
+import { buildDailyReportPdfBlob } from '@/utils/dailyReportPdf';
+import { buildPrintableReportPdfBlob } from '@/utils/reportPdf';
 
 const SAMPLE_RENDER: DailyReportRender = {
   header: {
@@ -129,6 +131,9 @@ describe('daily report HTML and Excel (Page 1, Page 2, and Page 3+ overflow)', (
     expect(page2).toContain('مراسلات الأولياء');
     expect(page2).toContain('غياب متكرر');
     expect(page2).toContain('ملاحظات و اقتراحات');
+    expect(page2).toContain('data-edit="counselor" style="height:50mm"');
+    expect(page2).toContain('data-edit="director" style="height:24mm"');
+    expect(page2).toContain('dr-notes-label dr-shade-subtle');
     // Notes that fit on Page 1 must NOT repeat on Page 2
     expect(page2).not.toContain('نظافة الساحة جيدة، إجراء نشاط ثقافي');
     expect(page2).not.toContain('مشكور على المجهود');
@@ -239,5 +244,41 @@ describe('daily report HTML and Excel (Page 1, Page 2, and Page 3+ overflow)', (
     // Verify workbook serializes cleanly to a real .xlsx binary buffer
     const buffer = await workbook.xlsx.writeBuffer();
     expect(buffer.byteLength).toBeGreaterThan(5000);
+  });
+
+  it('builds valid multi-page PDF blobs for Daily Report (standard and overflow) and PrintableReport', async () => {
+    const standardBlob = await buildDailyReportPdfBlob(SAMPLE_RENDER);
+    expect(standardBlob.type).toBe('application/pdf');
+    const standardPdf = new TextDecoder('latin1').decode(await standardBlob.arrayBuffer());
+    expect(standardPdf.startsWith('%PDF-')).toBe(true);
+    expect(standardPdf).toContain('/Count 2');
+
+    const overflowRender: DailyReportRender = {
+      ...SAMPLE_RENDER,
+      counselorNotes: Array.from({ length: 38 }, (_, i) => `بند المستشار رقم ${i + 1}: تفقد التلاميذ.`).join('\n'),
+      directorNotes: Array.from({ length: 16 }, (_, i) => `قرار المدير رقم ${i + 1}: متابعة الانضباط.`).join('\n'),
+    };
+    const overflowBlob = await buildDailyReportPdfBlob(overflowRender);
+    const overflowPdf = new TextDecoder('latin1').decode(await overflowBlob.arrayBuffer());
+    expect(overflowPdf.startsWith('%PDF-')).toBe(true);
+    expect(overflowPdf).not.toContain('/Count 2\n');
+
+    const monthlyBlob = await buildPrintableReportPdfBlob({
+      title: 'التقرير الشهري للغيابات',
+      subtitle: 'الشهر: 2026-11',
+      lang: 'ar',
+      dir: 'rtl',
+      sections: [
+        {
+          heading: 'الغيابات حسب القسم',
+          headers: ['القسم', 'التلاميذ', 'الساعات'],
+          rows: [['1م1', '35', '12']],
+          footer: ['المجموع', '35', '12'],
+        },
+      ],
+    });
+    expect(monthlyBlob.type).toBe('application/pdf');
+    const monthlyPdf = new TextDecoder('latin1').decode(await monthlyBlob.arrayBuffer());
+    expect(monthlyPdf.startsWith('%PDF-')).toBe(true);
   });
 });

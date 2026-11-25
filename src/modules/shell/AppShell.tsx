@@ -72,10 +72,39 @@ function loadSidebarCollapsed(): boolean {
   }
 }
 
+const VALID_TABS = new Set<TabId>([
+  'home',
+  'dashboard',
+  'students',
+  'cards',
+  'timetable',
+  'absences',
+  'entry',
+  'canteen',
+  'statistics',
+  'library',
+  'supervisors',
+  'settings',
+  'search',
+]);
+
+function readInitialTab(): TabId {
+  if (typeof window === 'undefined') return 'home';
+  try {
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    if (requested && VALID_TABS.has(requested as TabId)) {
+      return requested as TabId;
+    }
+  } catch {
+    // ignore URL parse issues
+  }
+  return 'home';
+}
+
 export function AppShell() {
   const { t } = useTranslation();
   const { user, institution } = useSession();
-  const [tab, setTab] = useState<TabId>('home');
+  const [tab, setTab] = useState<TabId>(readInitialTab);
   const [notifOpen, setNotifOpen] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(loadSidebarCollapsed);
@@ -150,9 +179,19 @@ export function AppShell() {
         return;
       }
 
+      const target = event.target as HTMLElement | null;
+      const isEditing =
+        target !== null &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable);
+
+      if (!isEditing && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === '/') {
+        event.preventDefault();
+        setTab('search');
+        return;
+      }
+
       if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
-        const target = event.target as HTMLElement | null;
-        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) {
+        if (isEditing) {
           return;
         }
         const digit = Number(event.key);
@@ -185,7 +224,7 @@ export function AppShell() {
 
       <div className="flex min-h-dvh min-w-0 flex-1 flex-col">
         <header className="safe-pt safe-px sticky top-0 z-20 border-b border-neutral-200/80 bg-white/90 backdrop-blur">
-          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 lg:max-w-6xl lg:px-8">
+          <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3 lg:max-w-7xl lg:px-8">
             <div className="flex min-w-0 items-center gap-3 lg:hidden">
               <AppLogo size="sm" />
               <div className="flex min-w-0 flex-col">
@@ -241,7 +280,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main key={tab} className="mx-auto w-full max-w-3xl flex-1 px-4 pb-32 pt-6 animate-fade-up lg:max-w-6xl lg:px-8 lg:pb-12">
+        <main key={tab} className="mx-auto w-full max-w-3xl flex-1 px-4 pb-32 pt-6 animate-fade-up lg:max-w-7xl lg:px-8 lg:pb-12">
           {tab === 'home' ? <HomeScreen onNavigate={setTab} hasCanteen={hasCanteen} /> : null}
           {tab === 'dashboard' ? (
             <Suspense fallback={<LoadingState />}>

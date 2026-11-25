@@ -210,10 +210,16 @@ export function HardwareScannerBox({
         }, BURST_IDLE_SUBMIT_MS);
       }
     } else if (addedChars > 1) {
-      // Multi-char burst in a single input event (some Bluetooth/Android HID wedges batch chars)
-      // Do not auto-submit on manual paste (handled cleanly via Enter or Submit button), only track timestamp
+      // Multi-char burst in a single input event (Bluetooth/Android HID wedges often batch chars)
       lastCharTimeRef.current = now;
-      fastIntervalCountRef.current = 0;
+      if (!showSoftKeyboard && next.trim().length >= 3) {
+        fastIntervalCountRef.current = MIN_FAST_INTERVALS_FOR_BURST;
+        burstTimerRef.current = window.setTimeout(() => {
+          submitCurrent(latestValueRef.current);
+        }, BURST_IDLE_SUBMIT_MS);
+      } else {
+        fastIntervalCountRef.current = 0;
+      }
     } else {
       lastCharTimeRef.current = 0;
       fastIntervalCountRef.current = 0;
@@ -221,7 +227,7 @@ export function HardwareScannerBox({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' || event.key === 'NumpadEnter') {
+    if (event.key === 'Enter' || event.key === 'NumpadEnter' || event.code === 'NumpadEnter' || event.key === 'Tab') {
       event.preventDefault();
       submitCurrent(latestValueRef.current || value);
     }

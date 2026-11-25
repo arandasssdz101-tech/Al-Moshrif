@@ -286,4 +286,35 @@ describe('Student ID & QR Cards utilities', () => {
     expect(html).toContain('id-card-map');
     expect(html).toContain('id-card-qr-bezel');
   });
+
+  it('recovers hardware scanner reads affected by French AZERTY, Arabic-101 layout, CapsLock, SN payloads, and control chars', () => {
+    const student = makeStudent({
+      id: 'stu-101',
+      cardCode: 'REG-2026-001',
+    });
+    const stableKey = deriveStableStudentCardKey(student);
+
+    // Mixed digits + AZERTY symbols without letters normalize cleanly
+    expect(normalizeScannedCode('12&éà')).toBe('12120');
+    // Invisible control characters (STX/ETX/ZWSP/BOM) stripped cleanly
+    expect(normalizeScannedCode('\u0002\uFEFFREG-2026-001\u200B\u0003')).toBe('REG-2026-001');
+
+    // French AZERTY USB scanner scanning REG-2026-001 -> REG)éàé-)àà& ('-' is ')', '6' is '-')
+    expect(matchStudentFromScan([student], 'REG)éàé-)àà&')?.id).toBe('stu-101');
+
+    // French AZERTY USB scanner scanning structured QR (':' -> 'M', '|' -> 'µ', '-' -> ')', digits -> &é"'(-è_çà, Arabic dropped)
+    const azertyQr = 'IDMstu)&à&µNQ,EM µCLQSSM&&µYEQR:éàé(/éàé(µVERM&';
+    expect(matchStudentFromScan([student], azertyQr)?.id).toBe('stu-101');
+
+    // Arabic-101 Windows layout USB scanner scanning REG-2026-001 ('R'->'ق', 'E'->'ث', 'G'->'ل')
+    expect(matchStudentFromScan([student], 'قثل-2026-001')?.id).toBe('stu-101');
+
+    // CapsLock inverted case on CID / REG / ID
+    expect(matchStudentFromScan([student], stableKey.toLowerCase())?.id).toBe('stu-101');
+    expect(matchStudentFromScan([student], 'reg-2026-001')?.id).toBe('stu-101');
+    expect(matchStudentFromScan([student], `CID:${stableKey.toLowerCase()}|NAME:X`)?.id).toBe('stu-101');
+
+    // SN: legacy canteen/card payload fallback
+    expect(matchStudentFromScan([student], 'SN:REG-2026-001|اسم:أحمد بن سالم')?.id).toBe('stu-101');
+  });
 });

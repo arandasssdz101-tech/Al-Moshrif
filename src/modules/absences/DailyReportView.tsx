@@ -29,6 +29,7 @@ import { studentDayAbsences } from '@/utils/dailyPage1';
 import { computePage2 } from '@/utils/dailyPage2';
 import { exportDailyReportExcel } from '@/utils/dailyExcel';
 import { buildDailyReportHtml, type DailyReportRender } from '@/utils/dailyReportHtml';
+import { exportDailyReportPdf } from '@/utils/dailyReportPdf';
 import { printDailyPages } from '@/utils/printDailyPages';
 import { schoolYearForDate } from '@/utils/schoolYear';
 import { todayIso } from '@/utils/dates';
@@ -96,6 +97,8 @@ export function DailyReportView({ data }: DailyReportViewProps) {
   const [editing, setEditing] = useState<EditTarget | null>(null);
   const [canteenEntries, setCanteenEntries] = useState<CanteenEntry[] | null>(null);
   const [gateEntries, setGateEntries] = useState<GateEntry[]>([]);
+  const [pdfExporting, setPdfExporting] = useState(false);
+  const [pdfFailed, setPdfFailed] = useState(false);
   const dirtyRef = useRef(false);
   const savingLocalRef = useRef(false);
   const validDate = isIsoDate(date);
@@ -332,6 +335,19 @@ export function DailyReportView({ data }: DailyReportViewProps) {
     if (reportRender) void exportDailyReportExcel(reportRender, `daily-report-${date}.xlsx`);
   };
 
+  const handlePdf = async () => {
+    if (!reportRender || pdfExporting) return;
+    setPdfExporting(true);
+    setPdfFailed(false);
+    try {
+      await exportDailyReportPdf(reportRender, `daily-report-${date}.pdf`);
+    } catch {
+      setPdfFailed(true);
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
   const status = dirty
     ? { text: t('dailyReport.unsaved'), className: 'text-warning-700' }
     : saveState === 'saved'
@@ -383,7 +399,13 @@ export function DailyReportView({ data }: DailyReportViewProps) {
             </Button>
             {status ? <span className={`text-sm font-medium ${status.className}`}>{status.text}</span> : null}
           </div>
-          <ReportExportBar onPrint={handlePrint} onExcel={handleExcel} />
+          <ReportExportBar
+            onPrint={handlePrint}
+            onPdf={() => void handlePdf()}
+            pdfPending={pdfExporting}
+            onExcel={handleExcel}
+          />
+          {pdfFailed ? <FormError message={t('reports.pdfFailed')} /> : null}
           <p className="text-sm text-neutral-500">{t('dailyReport.tapToEdit')}</p>
           <DailyPagePreview pages={pages} onSectionClick={handleSectionClick} />
         </>

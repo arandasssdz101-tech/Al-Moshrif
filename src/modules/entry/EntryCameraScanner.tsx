@@ -37,7 +37,7 @@ interface EntryCameraScannerProps {
   onToggleActive: () => void;
 }
 
-const DESIRED_BARCODE_FORMATS = ['qr_code', 'code_128', 'code_39', 'ean_13', 'itf'];
+const DESIRED_BARCODE_FORMATS = ['qr_code', 'code_128', 'code_39', 'ean_13', 'itf', 'data_matrix', 'pdf_417'];
 
 export function EntryCameraScanner({
   active,
@@ -342,8 +342,11 @@ export function EntryCameraScanner({
           BarcodeFormat.CODE_39,
           BarcodeFormat.EAN_13,
           BarcodeFormat.ITF,
+          BarcodeFormat.DATA_MATRIX,
+          BarcodeFormat.PDF_417,
         ]);
         hints.set(DecodeHintType.TRY_HARDER, true);
+        hints.set(DecodeHintType.CHARACTER_SET, 'UTF-8');
 
         const reader = new BrowserMultiFormatReader(hints, {
           delayBetweenScanAttempts: 160,

@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { OfflineIndicator } from '@/components/OfflineIndicator';
 import { ErrorState, LoadingState } from '@/components/ui/StatusBlock';
 import { AuthProvider, useAuth } from '@/modules/auth/AuthContext';
 import { AuthFlow } from '@/modules/auth/AuthFlow';
@@ -11,6 +12,7 @@ export default function App() {
     <ErrorBoundary>
       <AuthProvider>
         <Gate />
+        <OfflineIndicator />
       </AuthProvider>
     </ErrorBoundary>
   );

@@ -61,6 +61,15 @@ describe('findStudentByCode', () => {
     expect(findStudentByCode(students, '12345', 'studentId')).toBeNull();
   });
 
+  it('normalizes Arabic-Indic digits, AZERTY symbols, NIN/SN payloads, and case differences', () => {
+    expect(findStudentByCode(students, '١٢٣٤٥\r\n', 'cardCode')?.id).toBe('s1');
+    expect(findStudentByCode(students, '&é"\'(', 'cardCode')?.id).toBe('s1');
+    expect(findStudentByCode(students, 'NIN:12345|اسم:A B', 'cardCode')?.id).toBe('s1');
+    expect(findStudentByCode(students, 'SN:12345|اسم:A B', 'cardCode')?.id).toBe('s1');
+    expect(findStudentByCode(students, 's2', 'cardCode')?.id).toBe('s2');
+    expect(findStudentByCode(students, 'S2', 'studentId')?.id).toBe('s2');
+  });
+
   it('returns null for empty input or missing codes', () => {
     expect(findStudentByCode(students, '   ', 'cardCode')).toBeNull();
     expect(findStudentByCode(students, 'nope', 'cardCode')).toBeNull();

@@ -23,7 +23,8 @@ export function fallbackRandomUUID(): `${string}-${string}-${string}-${string}-$
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
   const hex: string[] = [];
   for (let i = 0; i < bytes.length; i += 1) {
-    hex.push(bytes[i].toString(16).padStart(2, '0'));
+    const byteHex = bytes[i].toString(16);
+    hex.push(byteHex.length < 2 ? `0${byteHex}` : byteHex);
   }
   return `${hex.slice(0, 4).join('')}-${hex.slice(4, 6).join('')}-${hex.slice(6, 8).join('')}-${hex.slice(8, 10).join('')}-${hex.slice(10, 16).join('')}`;
 }
@@ -384,6 +385,239 @@ export function installCompatPolyfills(): void {
             }, 0);
           });
       },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // 17. String.prototype.padStart & padEnd (Chrome < 57)
+  if (typeof String.prototype.padStart !== 'function') {
+    Object.defineProperty(String.prototype, 'padStart', {
+      value(this: string, targetLength: number, padString = ' '): string {
+        const str = String(this);
+        const len = Math.trunc(targetLength) || 0;
+        if (str.length >= len) return str;
+        const fill = String(padString);
+        if (fill.length === 0) return str;
+        const needed = len - str.length;
+        let padding = '';
+        while (padding.length < needed) padding += fill;
+        return padding.slice(0, needed) + str;
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  if (typeof String.prototype.padEnd !== 'function') {
+    Object.defineProperty(String.prototype, 'padEnd', {
+      value(this: string, targetLength: number, padString = ' '): string {
+        const str = String(this);
+        const len = Math.trunc(targetLength) || 0;
+        if (str.length >= len) return str;
+        const fill = String(padString);
+        if (fill.length === 0) return str;
+        const needed = len - str.length;
+        let padding = '';
+        while (padding.length < needed) padding += fill;
+        return str + padding.slice(0, needed);
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // 18. Object.values & Object.entries (Chrome < 54)
+  if (typeof Object.values !== 'function') {
+    Object.defineProperty(Object, 'values', {
+      value<T>(obj: { [s: string]: T } | ArrayLike<T>): T[] {
+        if (obj === null || obj === undefined) {
+          throw new TypeError('Cannot convert undefined or null to object');
+        }
+        const target = Object(obj) as Record<string, T>;
+        return Object.keys(target).map((key) => target[key]);
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  if (typeof Object.entries !== 'function') {
+    Object.defineProperty(Object, 'entries', {
+      value<T>(obj: { [s: string]: T } | ArrayLike<T>): [string, T][] {
+        if (obj === null || obj === undefined) {
+          throw new TypeError('Cannot convert undefined or null to object');
+        }
+        const target = Object(obj) as Record<string, T>;
+        return Object.keys(target).map((key) => [key, target[key]]);
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // 19. Array.prototype.includes (Chrome < 47)
+  if (typeof Array.prototype.includes !== 'function') {
+    Object.defineProperty(Array.prototype, 'includes', {
+      value<T>(this: T[], searchElement: T, fromIndex = 0): boolean {
+        const len = this.length >>> 0;
+        if (len === 0) return false;
+        const n = Math.trunc(fromIndex) || 0;
+        let k = n >= 0 ? n : Math.max(len + n, 0);
+        while (k < len) {
+          const current = this[k];
+          if (current === searchElement || (Number.isNaN(current) && Number.isNaN(searchElement))) {
+            return true;
+          }
+          k += 1;
+        }
+        return false;
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // 20. Promise.prototype.finally (Chrome < 63)
+  if (typeof Promise.prototype.finally !== 'function') {
+    Object.defineProperty(Promise.prototype, 'finally', {
+      value<T>(this: Promise<T>, onFinally?: (() => void) | null): Promise<T> {
+        const cb = typeof onFinally === 'function' ? onFinally : () => undefined;
+        return this.then(
+          (value) => Promise.resolve(cb()).then(() => value),
+          (reason) =>
+            Promise.resolve(cb()).then(() => {
+              throw reason;
+            }),
+        );
+      },
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // 21. AbortController & AbortSignal minimal shim (Chrome < 66)
+  if (typeof globalThis.AbortController === 'undefined') {
+    class CompatAbortSignal {
+      aborted = false;
+      reason: unknown = undefined;
+      onabort: ((this: AbortSignal, ev: Event) => unknown) | null = null;
+      private listeners = new Set<(ev: Event) => void>();
+
+      addEventListener(type: string, listener: EventListenerOrEventListenerObject | null): void {
+        if (type !== 'abort' || !listener) return;
+        const fn =
+          typeof listener === 'function'
+            ? (listener as (ev: Event) => void)
+            : (ev: Event) => listener.handleEvent(ev);
+        this.listeners.add(fn);
+      }
+
+      removeEventListener(type: string, listener: EventListenerOrEventListenerObject | null): void {
+        if (type !== 'abort' || typeof listener !== 'function') return;
+        this.listeners.delete(listener as (ev: Event) => void);
+      }
+
+      dispatchEvent(ev: Event): boolean {
+        if (typeof this.onabort === 'function') {
+          this.onabort.call(this as unknown as AbortSignal, ev);
+        }
+        this.listeners.forEach((fn) => fn(ev));
+        return true;
+      }
+
+      throwIfAborted(): void {
+        if (this.aborted) {
+          throw this.reason ?? new Error('Aborted');
+        }
+      }
+    }
+
+    class CompatAbortController {
+      signal = new CompatAbortSignal() as unknown as AbortSignal;
+
+      abort(reason?: unknown): void {
+        const sig = this.signal as unknown as CompatAbortSignal;
+        if (sig.aborted) return;
+        sig.aborted = true;
+        sig.reason = reason ?? new Error('AbortError');
+        const evt = typeof Event === 'function' ? new Event('abort') : ({ type: 'abort' } as Event);
+        sig.dispatchEvent(evt);
+      }
+    }
+
+    Object.defineProperty(globalThis, 'AbortSignal', {
+      value: CompatAbortSignal,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, 'AbortController', {
+      value: CompatAbortController,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // 22. ResizeObserver fallback shim (Chrome < 64) for Recharts & viewers
+  if (typeof globalThis.ResizeObserver === 'undefined' && typeof window !== 'undefined') {
+    class CompatResizeObserver {
+      private targets = new Set<Element>();
+      private callback: ResizeObserverCallback;
+      private timer: number | null = null;
+      private onWindowResize = () => {
+        this.scheduleNotify();
+      };
+
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+
+      private scheduleNotify(): void {
+        if (this.timer !== null) return;
+        this.timer = window.setTimeout(() => {
+          this.timer = null;
+          if (this.targets.size === 0) return;
+          const entries = Array.from(this.targets).map((target) => {
+            const rect = target.getBoundingClientRect();
+            return {
+              target,
+              contentRect: rect,
+              borderBoxSize: [{ blockSize: rect.height, inlineSize: rect.width }],
+              contentBoxSize: [{ blockSize: rect.height, inlineSize: rect.width }],
+              devicePixelContentBoxSize: [{ blockSize: rect.height, inlineSize: rect.width }],
+            } as unknown as ResizeObserverEntry;
+          });
+          this.callback(entries, this as unknown as ResizeObserver);
+        }, 16);
+      }
+
+      observe(target: Element): void {
+        if (this.targets.size === 0) {
+          window.addEventListener('resize', this.onWindowResize);
+        }
+        this.targets.add(target);
+        this.scheduleNotify();
+      }
+
+      unobserve(target: Element): void {
+        this.targets.delete(target);
+        if (this.targets.size === 0) {
+          window.removeEventListener('resize', this.onWindowResize);
+        }
+      }
+
+      disconnect(): void {
+        this.targets.clear();
+        window.removeEventListener('resize', this.onWindowResize);
+        if (this.timer !== null) {
+          window.clearTimeout(this.timer);
+          this.timer = null;
+        }
+      }
+    }
+
+    Object.defineProperty(globalThis, 'ResizeObserver', {
+      value: CompatResizeObserver,
       configurable: true,
       writable: true,
     });

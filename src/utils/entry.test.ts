@@ -441,4 +441,47 @@ describe('Gate Entry domain logic', () => {
     expect(mergePlan.addedCount).toBe(1);
     expect(mergePlan.downgradedToDuplicateCount).toBe(0);
   });
+
+  it('recognizes cards when hardware readers use AZERTY, Arabic-101, or CapsLock', () => {
+    const students = [
+      makeStudent({ id: 's1', classId: 'c1', cardCode: 'REG-2026-001' }),
+    ];
+
+    const azertyDecision = decideGateScan({
+      rawCode: 'REG)éàé-)àà&\r\n',
+      date: '2026-10-12',
+      time: '07:55:00',
+      students,
+      entriesForDate: [],
+      slots: [],
+      settings: DEFAULT_ENTRY_SETTINGS,
+      convertAzertyDigits: true,
+    });
+    expect(azertyDecision.result).toBe('accepted');
+    expect(azertyDecision.student?.id).toBe('s1');
+
+    const arabicLayoutDecision = decideGateScan({
+      rawCode: 'قثل-2026-001',
+      date: '2026-10-12',
+      time: '07:56:00',
+      students,
+      entriesForDate: [],
+      slots: [],
+      settings: DEFAULT_ENTRY_SETTINGS,
+    });
+    expect(arabicLayoutDecision.result).toBe('accepted');
+    expect(arabicLayoutDecision.student?.id).toBe('s1');
+
+    const capsQrDecision = decideGateScan({
+      rawCode: 'id:S1|name:X|reg:reg-2026-001',
+      date: '2026-10-12',
+      time: '07:57:00',
+      students,
+      entriesForDate: [],
+      slots: [],
+      settings: DEFAULT_ENTRY_SETTINGS,
+    });
+    expect(capsQrDecision.result).toBe('accepted');
+    expect(capsQrDecision.student?.id).toBe('s1');
+  });
 });

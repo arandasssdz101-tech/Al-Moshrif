@@ -19,6 +19,7 @@ import { getLibraryFileBlob } from '@/db/library';
 import type { LibraryMeta } from '@/db/types';
 import { downloadBlob } from '@/utils/download';
 import { registerAndroidBackHandler } from '@/utils/androidBack';
+import { safeScrollIntoView } from '@/utils/scroll';
 import { destroyPdfDocument, openPdfDocument } from './pdfEngine';
 
 interface PdfViewerModalProps {
@@ -248,7 +249,7 @@ export function PdfViewerModal({
     if (savedPage > 1) {
       requestAnimationFrame(() => {
         const el = pageContainerRefs.current.get(savedPage);
-        el?.scrollIntoView({ behavior: 'auto', block: 'start' });
+        safeScrollIntoView(el, { behavior: 'auto', block: 'start' });
       });
     }
   }, [item.lastPage, loading, pages.length]);
@@ -552,7 +553,7 @@ export function PdfViewerModal({
     const clamped = Math.min(Math.max(1, pageNum), Math.max(1, pages.length));
     setCurrentPage(clamped);
     const el = pageContainerRefs.current.get(clamped);
-    el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    safeScrollIntoView(el, { behavior: 'smooth', block: 'start' });
   };
 
   const handleJumpSubmit = (event: FormEvent) => {

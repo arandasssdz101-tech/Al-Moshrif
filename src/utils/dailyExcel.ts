@@ -680,13 +680,13 @@ function buildPage2Worksheet(
   );
   setMergedCell(ws, r, 3, r, 9, notes.counselor || '', { size: 9.5, align: ALIGN_NOTE_BODY });
   setMergedCell(ws, r, 10, r, 12, 'الامضاء', { size: 10.5, bold: true });
-  ws.getRow(r).height = estimateHeight(notes.counselor, 58, 72);
+  ws.getRow(r).height = estimateHeight(notes.counselor, 56, 132);
   r += 1;
 
   setMergedCell(ws, r, 1, r, 2, 'ملاحظات مدير المؤسسة', { size: 9.5, bold: true, fill: FILL_SUBTLE });
   setMergedCell(ws, r, 3, r, 9, notes.director || '', { size: 9.5, align: ALIGN_NOTE_BODY });
   setMergedCell(ws, r, 10, r, 12, 'الامضاء', { size: 10.5, bold: true });
-  ws.getRow(r).height = estimateHeight(notes.director, 58, notes.counselor ? 44 : 86);
+  ws.getRow(r).height = estimateHeight(notes.director, 56, 64);
   applyGridBorders(ws, notesStart, 1, r, 12, MEDIUM, MEDIUM);
   r += 1;
 

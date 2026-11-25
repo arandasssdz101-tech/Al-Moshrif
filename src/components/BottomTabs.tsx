@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { safeScrollIntoView } from '@/utils/scroll';
 
 export interface TabItem<T extends string> {
   id: T;
@@ -19,7 +20,7 @@ export function BottomTabs<T extends string>({ items, active, onChange }: Bottom
   // Keep the active tab visible (works in both RTL and LTR)
   useEffect(() => {
     const el = listRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
-    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    safeScrollIntoView(el, { inline: 'center', block: 'nearest', behavior: 'smooth' });
   }, [active]);
 
   return (

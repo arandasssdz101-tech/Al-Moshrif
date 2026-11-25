@@ -188,7 +188,7 @@ export function StudentsScreen({ onOpenCards }: StudentsScreenProps = {}) {
           ) : (
             <>
               <p className="text-sm text-neutral-500">{t('students.resultCount', { count: visibleStudents.length })}</p>
-              <ul className="flex flex-col gap-3">
+              <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 {visibleStudents.map((student) => (
                   <StudentListItem
                     key={student.id}

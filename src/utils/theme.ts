@@ -557,6 +557,7 @@ export function applyThemePreferences(prefs: ThemePreferences): void {
   const scale = resolvePrimaryScale(prefs, isDark);
   for (const shade of Object.keys(scale) as ShadeKey[]) {
     root.style.setProperty(`--color-primary-${shade}`, scale[shade]);
+    root.style.setProperty(`--color-primary-${shade}-rgb`, scale[shade].replace(/\s+/g, ', '));
   }
 
   const metaTheme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');

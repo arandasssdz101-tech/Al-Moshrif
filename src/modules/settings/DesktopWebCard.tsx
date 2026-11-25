@@ -26,14 +26,14 @@ export function DesktopWebCard() {
           </div>
         </div>
         {isInstalled ? (
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-success-50 px-3 py-1 text-xs font-semibold text-success-700">
-            <CheckCircle2 className="size-3.5" aria-hidden />
+          <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-success-700">
+            <CheckCircle2 className="size-4" aria-hidden />
             {t('pwa.installedDesktop')}
           </span>
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <div className="flex items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3.5 py-2.5 text-sm">
           <span className="flex items-center gap-2 text-neutral-700">
             <Keyboard className="size-4 text-neutral-500" aria-hidden />
@@ -50,6 +50,15 @@ export function DesktopWebCard() {
           </span>
           <kbd className="rounded-lg border border-neutral-300 bg-white px-2 py-0.5 font-mono text-xs font-semibold text-neutral-700" dir="ltr">
             Ctrl + P
+          </kbd>
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-neutral-50 px-3.5 py-2.5 text-sm">
+          <span className="flex items-center gap-2 text-neutral-700">
+            <Keyboard className="size-4 text-neutral-500" aria-hidden />
+            {t('pwa.desktopShortcutTabs')}
+          </span>
+          <kbd className="rounded-lg border border-neutral-300 bg-white px-2 py-0.5 font-mono text-xs font-semibold text-neutral-700" dir="ltr">
+            Alt + 1..9
           </kbd>
         </div>
       </div>

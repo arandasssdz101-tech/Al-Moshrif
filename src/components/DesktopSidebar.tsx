@@ -45,15 +45,17 @@ export function DesktopSidebar<T extends string>({
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">
         <ul className="flex flex-col gap-1">
-          {items.map((item) => {
+          {items.map((item, index) => {
             const Icon = item.icon;
             const isActive = item.id === active;
+            const shortcut = index < 9 ? `Alt+${index + 1}` : null;
+            const tooltip = shortcut ? `${item.label} (${shortcut})` : item.label;
             return (
               <li key={item.id}>
                 <button
                   type="button"
                   onClick={() => onChange(item.id)}
-                  title={collapsed ? item.label : undefined}
+                  title={collapsed ? tooltip : shortcut ?? undefined}
                   aria-current={isActive ? 'page' : undefined}
                   className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-sm transition ${
                     collapsed ? 'justify-center px-0' : ''
@@ -64,7 +66,19 @@ export function DesktopSidebar<T extends string>({
                   }`}
                 >
                   <Icon className="size-5 shrink-0" aria-hidden />
-                  {collapsed ? null : <span className="truncate">{item.label}</span>}
+                  {collapsed ? null : (
+                    <>
+                      <span className="flex-1 truncate text-start">{item.label}</span>
+                      {shortcut ? (
+                        <kbd
+                          dir="ltr"
+                          className="hidden rounded border border-neutral-200/80 bg-neutral-50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-neutral-400 xl:inline-block"
+                        >
+                          {index + 1}
+                        </kbd>
+                      ) : null}
+                    </>
+                  )}
                 </button>
               </li>
             );

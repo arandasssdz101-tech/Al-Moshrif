@@ -38,8 +38,29 @@ export default defineConfig({
         background_color: '#ffffff',
         display: 'standalone',
         display_override: ['standalone'],
+        prefer_related_applications: false,
         start_url: manifestScope,
         scope: manifestScope,
+        shortcuts: [
+          {
+            name: 'الغيابات والتأخرات',
+            short_name: 'الغيابات',
+            url: `${manifestScope}?tab=absences`,
+            icons: [{ src: `${manifestScope}pwa-192x192.png`, sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'الدخول اليومي',
+            short_name: 'الدخول',
+            url: `${manifestScope}?tab=entry`,
+            icons: [{ src: `${manifestScope}pwa-192x192.png`, sizes: '192x192', type: 'image/png' }],
+          },
+          {
+            name: 'البحث السريع',
+            short_name: 'بحث',
+            url: `${manifestScope}?tab=search`,
+            icons: [{ src: `${manifestScope}pwa-192x192.png`, sizes: '192x192', type: 'image/png' }],
+          },
+        ],
         icons: [
           {
             src: `${manifestScope}pwa-192x192.png`,

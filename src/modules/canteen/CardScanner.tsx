@@ -53,29 +53,64 @@ function setBodyScanning(active: boolean) {
   }
 }
 
-// دالة تنظيف وتحليل النص الممسوح لتصحيح الفراغات وتوحيد المفاتيح
+const WEB_BARCODE_FORMATS = ['qr_code', 'code_128', 'code_39', 'ean_13', 'itf', 'data_matrix', 'pdf_417'];
+
+interface BrowserBarcodeDetector {
+  detect: (source: HTMLVideoElement) => Promise<{ rawValue?: string }[]>;
+}
+
+interface BarcodeDetectorConstructor {
+  new (options?: { formats?: string[] }): BrowserBarcodeDetector;
+  getSupportedFormats?: () => Promise<string[]>;
+}
+
+function stripScannerControlChars(input: string): string {
+  let out = '';
+  for (let i = 0; i < input.length; i += 1) {
+    const code = input.charCodeAt(i);
+    if (
+      code <= 0x1f ||
+      code === 0x7f ||
+      (code >= 0x200b && code <= 0x200f) ||
+      (code >= 0x202a && code <= 0x202e) ||
+      code === 0xfeff
+    ) {
+      continue;
+    }
+    out += code === 0x00a0 ? ' ' : input[i];
+  }
+  return out.trim();
+}
+
+// تنظيف النص الممسوح مع الحفاظ على صيغة بطاقة التلميذ المنظمة ودعم بطاقات NIN/SN
 function parseCardPayload(rawText: string): string {
   if (!rawText) return rawText;
-  
-  const cleaned = rawText.trim();
-  const parts = cleaned.split('|').map(p => p.trim());
-  
+
+  const cleaned = stripScannerControlChars(rawText);
+  if (!cleaned || !cleaned.includes('|')) return cleaned;
+
+  const parts = cleaned.split('|').map((p) => p.trim());
   const data: Record<string, string> = {};
-  parts.forEach(part => {
+  parts.forEach((part) => {
     const colonIndex = part.indexOf(':');
     if (colonIndex !== -1) {
       const key = part.substring(0, colonIndex).trim();
       const value = part.substring(colonIndex + 1).trim();
       data[key] = value;
+      data[key.toUpperCase()] = value;
     }
   });
 
-  // إذا تم العثور على المعرف التسلسلي أو الرقم الوطني، نقوم بإعادة بناء النص بالصيغة القياسية السليمة
+  // Preserve EduTrack student QR payloads (ID / CID / REG) intact
+  if (data['ID'] || data['CID'] || data['REG']) {
+    return cleaned;
+  }
+
   const nin = data['NIN'] || '';
   const name = data['اسم'] || '';
   const decision = data['قرار'] || '';
-  const sn = data['SN'] || data['SN '] || '';
-  const sig = data['sig'] || '';
+  const sn = data['SN'] || '';
+  const sig = data['sig'] || data['SIG'] || '';
 
   if (nin || sn) {
     return `NIN:${nin}|اسم:${name}|قرار:${decision}|SN:${sn}|sig:${sig}`;
@@ -93,6 +128,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   const [torchOn, setTorchOn] = useState(false);
   const [torchAvailable, setTorchAvailable] = useState(false);
   const [permissionVersion, setPermissionVersion] = useState(0);
+  const [webRetryToken, setWebRetryToken] = useState(0);
   const [lastError, setLastError] = useState<string | null>(null);
   const [usingFallback, setUsingFallback] = useState(false);
   const [systemScanResult, setSystemScanResult] = useState<string | null>(null);
@@ -102,7 +138,6 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   const pausedRef = useRef(paused);
   const onDetectRef = useRef(onDetect);
   const lastRef = useRef<{ text: string; at: number } | null>(null);
-  const zxingReaderRef = useRef<unknown>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
   const nativeListenersRef = useRef<PluginListenerHandle[]>([]);
   const backCleanupRef = useRef<(() => void) | null>(null);
@@ -168,9 +203,15 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   }, []);
 
   const stopWebStream = useCallback(() => {
-    zxingControlsRef.current?.stop();
-    zxingControlsRef.current = null;
-    zxingReaderRef.current = null;
+    scanningRef.current = false;
+    if (zxingControlsRef.current) {
+      try {
+        zxingControlsRef.current.stop();
+      } catch {
+        // ignore
+      }
+      zxingControlsRef.current = null;
+    }
     if (webStreamRef.current) {
       webStreamRef.current.getTracks().forEach((tr) => tr.stop());
       webStreamRef.current = null;
@@ -192,7 +233,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   }, [stopNativeScan, stopWebStream]);
 
   useEffect(() => {
-    if (!isNative) return;
+    if (!isNative || usingFallback) return;
     let cancelled = false;
 
     const startNativeLive = async () => {
@@ -205,7 +246,8 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
 
       try {
         const scanListener = await BarcodeScanner.addListener('barcodesScanned', (event) => {
-          const value = event.barcodes[0]?.rawValue;
+          const match = event.barcodes.find((b) => Boolean(b.rawValue || b.displayValue));
+          const value = match?.rawValue ?? match?.displayValue;
           if (value) emit(value);
         });
         const errorListener = await BarcodeScanner.addListener('scanError', (event) => {
@@ -247,18 +289,21 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
         if (cancelled) return;
         const msg = err instanceof Error ? err.message : String(err);
         setLastError(msg);
-        setStatus('pluginMissing');
-        await startWebFallback();
+        setBodyScanning(false);
+        setUsingFallback(true);
+        setMode('web');
       }
     };
 
     (async () => {
       await tryNativeOrFallback();
-    })().catch(async (err) => {
+    })().catch((err) => {
       if (cancelled) return;
       const msg = err instanceof Error ? err.message : String(err);
       setLastError(msg);
-      await startWebFallback();
+      setBodyScanning(false);
+      setUsingFallback(true);
+      setMode('web');
     });
 
     backCleanupRef.current = registerAndroidBackHandler(() => {
@@ -275,7 +320,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNative, facing, permissionVersion]);
+  }, [isNative, usingFallback, facing, permissionVersion]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -286,111 +331,61 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
     };
   }, [stopWebStream]);
 
-  const startWebFallback = async () => {
-    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
-      if (mountedRef.current) setStatus('unsupported');
-      return;
-    }
-    stopWebStream();
-    let stream: MediaStream | null = null;
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } });
-    } catch (err) {
-      if (!mountedRef.current) return;
-      const msg = err instanceof Error ? err.message : String(err);
-      setLastError(msg);
-      setStatus('denied');
-      return;
-    }
-    if (!mountedRef.current) {
-      stream.getTracks().forEach((tr) => tr.stop());
-      return;
-    }
-    const track = stream.getVideoTracks()[0] ?? null;
-    if (!track) {
-      setLastError('No video track');
-      setStatus('noCamera');
-      stream.getTracks().forEach((tr) => tr.stop());
-      return;
-    }
-    webStreamRef.current = stream;
-    trackRef.current = track;
-    const capabilities = (track.getCapabilities?.() ?? {}) as { torch?: boolean };
-    setTorchAvailable(Boolean(capabilities.torch));
-
-    const video = videoRef.current;
-    if (!video) {
-      stopWebStream();
-      return;
-    }
-    video.srcObject = stream;
-    await video.play().catch(() => undefined);
-    if (!mountedRef.current) {
-      stopWebStream();
-      return;
-    }
-
-    setUsingFallback(true);
-    setMode('web');
-    setStatus('running');
-    setLastError(null);
-
-    try {
-      const { BrowserMultiFormatReader } = await import('@zxing/browser');
-      if (!mountedRef.current) return;
-      const reader = new BrowserMultiFormatReader();
-      zxingReaderRef.current = reader;
-      const controls = await reader.decodeFromVideoDevice(undefined, video, (result) => {
-        if (result) emit(result.getText());
-      });
-      if (!mountedRef.current) {
-        controls.stop();
-        return;
-      }
-      zxingControlsRef.current = controls;
-    } catch {
-      if (!mountedRef.current) return;
-      const Detector = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
-      if (Detector) {
-        const detector = new Detector({ formats: ['code_128', 'code_39', 'ean_13', 'itf', 'qr_code', 'data_matrix', 'pdf_417'] });
-        const timer = window.setInterval(() => {
-          const src = videoRef.current;
-          if (!src || src.readyState < 2) return;
-          detector.detect(src).then((codes) => {
-            const value = codes[0]?.rawValue;
-            if (value) emit(value);
-          }).catch(() => undefined);
-        }, 200);
-        zxingControlsRef.current = { stop: () => window.clearInterval(timer) };
-      }
-    }
-  };
-
+  // Web camera scanner (desktop/mobile browser, or fallback when native MLKit is unavailable)
   useEffect(() => {
-    if (isNative) return;
+    if ((isNative && !usingFallback) || mode === 'systemScanner') return;
     let cancelled = false;
+    let detectorTimer: number | null = null;
+
+    const cleanupLocal = () => {
+      if (detectorTimer !== null) {
+        window.clearTimeout(detectorTimer);
+        detectorTimer = null;
+      }
+      stopWebStream();
+    };
 
     (async () => {
       if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
         if (!cancelled) setStatus('unsupported');
         return;
       }
+      setStatus('checking');
+
       let stream: MediaStream | null = null;
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } });
-      } catch (err) {
-        if (cancelled) return;
-        setLastError(err instanceof Error ? err.message : String(err));
-        setStatus('denied');
-        return;
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: facing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: facing },
+            audio: false,
+          });
+        } catch (err) {
+          if (cancelled) return;
+          setLastError(err instanceof Error ? err.message : String(err));
+          setStatus('denied');
+          return;
+        }
       }
-      if (cancelled) {
-        stream.getTracks().forEach((tr) => tr.stop());
+
+      if (cancelled || !stream) {
+        stream?.getTracks().forEach((tr) => tr.stop());
         return;
       }
       const track = stream.getVideoTracks()[0] ?? null;
       if (!track) {
-        if (!cancelled) { setLastError('No video track'); setStatus('noCamera'); }
+        if (!cancelled) {
+          setLastError('No video track');
+          setStatus('noCamera');
+        }
         stream.getTracks().forEach((tr) => tr.stop());
         return;
       }
@@ -398,25 +393,115 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
       trackRef.current = track;
       const capabilities = (track.getCapabilities?.() ?? {}) as { torch?: boolean };
       setTorchAvailable(Boolean(capabilities.torch));
+
       const video = videoRef.current;
-      if (video) {
-        video.srcObject = stream;
-        await video.play().catch(() => undefined);
-      }
-      if (cancelled) {
-        stopWebStream();
+      if (!video) {
+        cleanupLocal();
         return;
       }
-      setStatus('running');
+      video.srcObject = stream;
+      await video.play().catch(() => undefined);
+      if (cancelled) {
+        cleanupLocal();
+        return;
+      }
+
+      scanningRef.current = true;
       setMode('web');
+      setStatus('running');
       setLastError(null);
 
+      // Primary on supported Chromium/WebView: hardware-accelerated BarcodeDetector
+      const DetectorCtor = (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector;
+      let detector: BrowserBarcodeDetector | null = null;
+      if (DetectorCtor) {
+        try {
+          let formats = WEB_BARCODE_FORMATS;
+          if (typeof DetectorCtor.getSupportedFormats === 'function') {
+            const supported = await DetectorCtor.getSupportedFormats();
+            const intersection = WEB_BARCODE_FORMATS.filter((fmt) => supported.includes(fmt));
+            if (intersection.includes('qr_code')) {
+              formats = intersection;
+              detector = new DetectorCtor({ formats });
+            }
+          } else {
+            detector = new DetectorCtor({ formats });
+          }
+        } catch {
+          detector = null;
+        }
+      }
+
+      if (cancelled) {
+        cleanupLocal();
+        return;
+      }
+
+      if (detector) {
+        let detecting = false;
+        const tick = async () => {
+          if (cancelled) return;
+          const src = videoRef.current;
+          if (src && src.readyState >= 2 && !pausedRef.current && !detecting) {
+            detecting = true;
+            try {
+              const codes = await detector.detect(src);
+              for (const item of codes) {
+                if (item.rawValue) emit(item.rawValue);
+              }
+            } catch {
+              // Ignore single-frame detection errors
+            } finally {
+              detecting = false;
+            }
+          }
+          if (!cancelled) {
+            detectorTimer = window.setTimeout(() => {
+              void tick();
+            }, 130);
+          }
+        };
+        zxingControlsRef.current = {
+          stop: () => {
+            if (detectorTimer !== null) {
+              window.clearTimeout(detectorTimer);
+              detectorTimer = null;
+            }
+          },
+        };
+        void tick();
+        return;
+      }
+
+      // Fallback: bundled @zxing/browser reusing the EXISTING stream (no second getUserMedia call!)
       try {
-        const { BrowserMultiFormatReader } = await import('@zxing/browser');
-        if (cancelled) return;
-        const reader = new BrowserMultiFormatReader();
-        zxingReaderRef.current = reader;
-        const controls = await reader.decodeFromVideoDevice(undefined, video!, (result) => {
+        const [{ BrowserMultiFormatReader }, { BarcodeFormat: ZxingFormat, DecodeHintType }] = await Promise.all([
+          import('@zxing/browser'),
+          import('@zxing/library'),
+        ]);
+        if (cancelled) {
+          cleanupLocal();
+          return;
+        }
+        const hints = new Map();
+        hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+          ZxingFormat.QR_CODE,
+          ZxingFormat.CODE_128,
+          ZxingFormat.CODE_39,
+          ZxingFormat.EAN_13,
+          ZxingFormat.ITF,
+          ZxingFormat.DATA_MATRIX,
+          ZxingFormat.PDF_417,
+        ]);
+        hints.set(DecodeHintType.TRY_HARDER, true);
+        hints.set(DecodeHintType.CHARACTER_SET, 'UTF-8');
+
+        const reader = new BrowserMultiFormatReader(hints, {
+          delayBetweenScanAttempts: 150,
+          delayBetweenScanSuccess: 200,
+        });
+        const controls = await reader.decodeFromStream(stream, video, (result) => {
+          if (cancelled || pausedRef.current) return;
           if (result) emit(result.getText());
         });
         if (cancelled) {
@@ -424,30 +509,19 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
           return;
         }
         zxingControlsRef.current = controls;
-      } catch {
-        if (cancelled) return;
-        const Detector = (window as unknown as { BarcodeDetector?: new (opts: { formats: string[] }) => { detect: (src: HTMLVideoElement) => Promise<{ rawValue: string }[]> } }).BarcodeDetector;
-        if (Detector) {
-          const detector = new Detector({ formats: ['code_128', 'code_39', 'ean_13', 'itf', 'qr_code', 'data_matrix', 'pdf_417'] });
-          const timer = window.setInterval(() => {
-            const src = videoRef.current;
-            if (!src || src.readyState < 2) return;
-            detector.detect(src).then((codes) => {
-              const value = codes[0]?.rawValue;
-              if (value) emit(value);
-            }).catch(() => undefined);
-          }, 200);
-          zxingControlsRef.current = { stop: () => window.clearInterval(timer) };
+      } catch (err) {
+        if (!cancelled) {
+          setLastError(err instanceof Error ? err.message : String(err));
+          setStatus('unsupported');
         }
       }
     })();
 
     return () => {
       cancelled = true;
-      stopWebStream();
+      cleanupLocal();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNative, facing]);
+  }, [isNative, usingFallback, mode, facing, webRetryToken, emit, stopWebStream]);
 
   useEffect(() => {
     reportDiagnostics({});
@@ -540,7 +614,7 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
   const overlay = (
     <div ref={overlayRef} className={`scanner-overlay fixed inset-0 z-50 flex flex-col text-white ${overlayClass}`}>
       {(!isNative || usingFallback || mode === 'web') && !isSystemMode ? (
-        <video ref={videoRef} muted playsInline className="absolute inset-0 h-full w-full object-cover" />
+        <video ref={videoRef} muted playsInline autoPlay className="absolute inset-0 h-full w-full object-cover" />
       ) : null}
 
       <div className="safe-pt safe-px relative z-10 flex items-center justify-between gap-3 p-4">
@@ -648,14 +722,28 @@ export function CardScanner({ paused, banner, onDetect, onManual, onClose, onDia
               <p className="text-sm font-mono text-neutral-500 break-words">{lastError}</p>
             ) : null}
             <div className="flex gap-3">
-              <Button variant="ghost" fullWidth onClick={() => { setLastError(null); setStatus('checking'); if (isNative) setPermissionVersion(v => v + 1); }}>
+              <Button
+                variant="ghost"
+                fullWidth
+                onClick={() => {
+                  setLastError(null);
+                  setStatus('checking');
+                  if (isNative && !usingFallback) {
+                    setPermissionVersion((v) => v + 1);
+                  } else {
+                    setWebRetryToken((v) => v + 1);
+                  }
+                }}
+              >
                 <RefreshCw className="size-4" aria-hidden />
                 {t('canteen.scanner.tryAgain')}
               </Button>
-              <Button fullWidth onClick={() => { if (isNative) void BarcodeScanner.openSettings().catch(() => undefined); }}>
-                <SettingsIcon className="size-4" aria-hidden />
-                {t('canteen.scanner.openSettings')}
-              </Button>
+              {isNative ? (
+                <Button fullWidth onClick={() => { void BarcodeScanner.openSettings().catch(() => undefined); }}>
+                  <SettingsIcon className="size-4" aria-hidden />
+                  {t('canteen.scanner.openSettings')}
+                </Button>
+              ) : null}
             </div>
             {isNative ? (
               <Button variant="ghost" fullWidth onClick={switchToSystemScanner}>

@@ -40,6 +40,7 @@ export function EntryUsbScanner({
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const bufferRef = useRef('');
+  const prevLenRef = useRef(0);
   const lastCharAtRef = useRef(0);
   const fastBurstRef = useRef(false);
   const idleTimerRef = useRef<number | null>(null);
@@ -100,6 +101,7 @@ export function EntryUsbScanner({
     clearIdleTimer();
     const raw = bufferRef.current;
     bufferRef.current = '';
+    prevLenRef.current = 0;
     fastBurstRef.current = false;
     if (inputRef.current) {
       inputRef.current.value = '';
@@ -164,8 +166,10 @@ export function EntryUsbScanner({
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const value = event.target.value;
     const now = Date.now();
+    const addedChars = value.length - prevLenRef.current;
+    prevLenRef.current = value.length;
     const delta = now - lastCharAtRef.current;
-    if (lastCharAtRef.current > 0 && delta <= FAST_KEY_INTERVAL_MS) {
+    if ((lastCharAtRef.current > 0 && delta <= FAST_KEY_INTERVAL_MS) || addedChars > 1) {
       fastBurstRef.current = true;
     }
     lastCharAtRef.current = now;
@@ -177,6 +181,7 @@ export function EntryUsbScanner({
       const waitMs = fastBurstRef.current ? BURST_IDLE_MS : 180;
       idleTimerRef.current = window.setTimeout(() => {
         if (fastBurstRef.current || bufferRef.current.trim().length >= 4) {
+          prevLenRef.current = 0;
           flushBuffer();
         }
       }, waitMs);
@@ -184,8 +189,9 @@ export function EntryUsbScanner({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter' || event.key === 'Tab') {
+    if (event.key === 'Enter' || event.key === 'NumpadEnter' || event.code === 'NumpadEnter' || event.key === 'Tab') {
       event.preventDefault();
+      prevLenRef.current = 0;
       flushBuffer();
     }
   };

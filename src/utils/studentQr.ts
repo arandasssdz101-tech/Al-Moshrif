@@ -184,6 +184,101 @@ const AZERTY_DIGIT_MAP: Record<string, string> = {
 };
 
 const AZERTY_ONLY_PATTERN = /^[&éÉ"'(\-èÈ_çÇàÀ]+$/;
+const AZERTY_MIXED_DIGITS_PATTERN = /^[0-9&éÉ"'(\-èÈ_çÇàÀ]+$/;
+const HAS_AZERTY_ACCENT_OR_SYM = /[éÉèÈçÇàÀ]/;
+
+// Full US-QWERTY -> FR-AZERTY inverse map for hardware HID scanners connected to a French AZERTY OS
+const FULL_AZERTY_TO_QWERTY_MAP: Record<string, string> = {
+  '&': '1',
+  'é': '2',
+  'É': '2',
+  '"': '3',
+  "'": '4',
+  '(': '5',
+  '-': '6',
+  'è': '7',
+  'È': '7',
+  '_': '8',
+  'ç': '9',
+  'Ç': '9',
+  'à': '0',
+  'À': '0',
+  ')': '-',
+  '°': '_',
+  a: 'q',
+  A: 'Q',
+  q: 'a',
+  Q: 'A',
+  z: 'w',
+  Z: 'W',
+  w: 'z',
+  W: 'Z',
+  m: ';',
+  M: ':',
+  ',': 'm',
+  '?': 'M',
+  ';': ',',
+  '.': '.',
+  ':': '/',
+  '!': '/',
+  '§': '?',
+  '*': '\\',
+  'µ': '|',
+  'ù': "'",
+  '%': '"',
+  '^': '[',
+  '$': ']',
+  '¨': '{',
+  '£': '}',
+};
+
+// Top-row + hyphen AZERTY -> QWERTY variant (when scanner/IME keeps A/Q/Z/W/M intact)
+const TOP_ROW_AZERTY_TO_QWERTY_MAP: Record<string, string> = {
+  ...AZERTY_DIGIT_MAP,
+  ')': '-',
+  '°': '_',
+  'µ': '|',
+};
+
+// Arabic 101/102 Windows layout -> US-QWERTY lowercase/symbol map for ASCII IDs/codes scanned under Arabic layout
+const ARABIC_101_TO_QWERTY_MAP: Record<string, string> = {
+  '\u0636': 'q', // ض
+  '\u0635': 'w', // ص
+  '\u062B': 'e', // ث
+  '\u0642': 'r', // ق
+  '\u0641': 't', // ف
+  '\u063A': 'y', // غ
+  '\u0639': 'u', // ع
+  '\u0647': 'i', // ه
+  '\u062E': 'o', // خ
+  '\u062D': 'p', // ح
+  '\u062C': '[', // ج
+  '\u062F': ']', // د
+  '\u0634': 'a', // ش
+  '\u0633': 's', // س
+  '\u064A': 'd', // ي
+  '\u0628': 'f', // ب
+  '\u0644': 'g', // ل
+  '\u0627': 'h', // ا
+  '\u062A': 'j', // ت
+  '\u0646': 'k', // ن
+  '\u0645': 'l', // م
+  '\u0643': ';', // ك
+  '\u0637': "'", // ط
+  '\u0626': 'z', // ئ
+  '\u0621': 'x', // ء
+  '\u0624': 'c', // ؤ
+  '\u0631': 'v', // ر
+  '\u0649': 'n', // ى
+  '\u0629': 'm', // ة
+  '\u0648': ',', // و
+  '\u0632': '.', // ز
+  '\u0638': '/', // ظ
+  '\u0630': '`', // ذ
+  '\u060C': ',', // ،
+  '\u061B': ';', // ؛
+  '\u061F': '?', // ؟
+};
 
 export interface NormalizeScanOptions {
   convertAzertyDigits?: boolean;
@@ -202,9 +297,50 @@ function stripControlChars(input: string): string {
     ) {
       continue;
     }
-    out += input[i];
+    out += code === 0x00a0 ? ' ' : input[i];
   }
   return out;
+}
+
+function convertArabicDigitsToLatin(input: string): string {
+  return input
+    .replace(/[\u0660-\u0669]/g, (ch) => String(ch.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (ch) => String(ch.charCodeAt(0) - 0x06f0));
+}
+
+function mapChars(input: string, table: Record<string, string>): string {
+  let out = '';
+  for (const ch of input) {
+    out += table[ch] ?? ch;
+  }
+  return out;
+}
+
+function recoverArabic101ToQwerty(input: string): string {
+  // Handle Windows Arabic ligature 'لا' (which is Shift+G / B on Arabic keyboard)
+  const replacedLigature = input.replace(/\u0644\u0627/g, 'b');
+  return mapChars(replacedLigature, ARABIC_101_TO_QWERTY_MAP);
+}
+
+export function buildKeyboardRecoveryCandidates(cleaned: string): string[] {
+  const candidates: string[] = [];
+  const pushUnique = (val: string) => {
+    const trimmed = val.trim();
+    if (trimmed && trimmed !== cleaned && !candidates.includes(trimmed)) {
+      candidates.push(trimmed);
+    }
+  };
+
+  if (/[&éÉ"'(\-èÈ_çÇàÀ)°aAqQzZwWmM,;.:!*µ§ù%]/.test(cleaned)) {
+    pushUnique(mapChars(cleaned, FULL_AZERTY_TO_QWERTY_MAP));
+    pushUnique(mapChars(cleaned, TOP_ROW_AZERTY_TO_QWERTY_MAP));
+  }
+
+  if (/[\u0600-\u06FF]/.test(cleaned)) {
+    pushUnique(recoverArabic101ToQwerty(cleaned));
+  }
+
+  return candidates;
 }
 
 export function normalizeScannedCode(rawText: string, options: NormalizeScanOptions = {}): string {
@@ -216,12 +352,14 @@ export function normalizeScannedCode(rawText: string, options: NormalizeScanOpti
   if (!cleaned) return '';
 
   // 2. Convert Arabic-Indic (٠-٩) and Extended Arabic-Indic (۰-۹) digits to Latin (0-9)
-  cleaned = cleaned
-    .replace(/[\u0660-\u0669]/g, (ch) => String(ch.charCodeAt(0) - 0x0660))
-    .replace(/[\u06F0-\u06F9]/g, (ch) => String(ch.charCodeAt(0) - 0x06f0));
+  cleaned = convertArabicDigitsToLatin(cleaned);
 
-  // 3. Optional French AZERTY reader fix: only when entire string consists of AZERTY top-row symbols
-  if (convertAzertyDigits && AZERTY_ONLY_PATTERN.test(cleaned)) {
+  // 3. Optional French AZERTY reader fix for numeric/top-row symbol barcodes
+  if (
+    convertAzertyDigits &&
+    (AZERTY_ONLY_PATTERN.test(cleaned) ||
+      (AZERTY_MIXED_DIGITS_PATTERN.test(cleaned) && HAS_AZERTY_ACCENT_OR_SYM.test(cleaned)))
+  ) {
     cleaned = Array.from(cleaned)
       .map((ch) => AZERTY_DIGIT_MAP[ch] ?? ch)
       .join('');
@@ -231,7 +369,7 @@ export function normalizeScannedCode(rawText: string, options: NormalizeScanOpti
 }
 
 export function parseStudentQrPayload(rawText: string): ParsedStudentQr | null {
-  const cleaned = rawText.replace(/[\r\n]+/g, '').trim();
+  const cleaned = stripControlChars(rawText).trim();
   if (!cleaned || !cleaned.includes('|')) return null;
 
   const map: Record<string, string> = {};
@@ -239,7 +377,7 @@ export function parseStudentQrPayload(rawText: string): ParsedStudentQr | null {
     const colon = segment.indexOf(':');
     if (colon <= 0) continue;
     const key = segment.slice(0, colon).trim().toUpperCase();
-    const value = segment.slice(colon + 1).trim();
+    const value = convertArabicDigitsToLatin(segment.slice(colon + 1)).trim();
     map[key] = value;
   }
 
@@ -258,77 +396,157 @@ export function parseStudentQrPayload(rawText: string): ParsedStudentQr | null {
 }
 
 export function extractNinFromPayload(rawText: string): string | null {
-  const cleaned = rawText.replace(/[\r\n]+/g, '').trim();
+  const cleaned = stripControlChars(rawText).trim();
   if (!cleaned.includes('|')) return null;
+  let snFallback: string | null = null;
   for (const segment of cleaned.split('|')) {
     const colon = segment.indexOf(':');
     if (colon <= 0) continue;
     const key = segment.slice(0, colon).trim().toUpperCase();
+    const value = convertArabicDigitsToLatin(segment.slice(colon + 1)).trim();
+    if (!value) continue;
     if (key === 'NIN') {
-      const value = segment.slice(colon + 1).trim();
-      return value || null;
+      return value;
+    }
+    if (key === 'SN' && !snFallback) {
+      snFallback = value;
     }
   }
-  return null;
+  return snFallback;
+}
+
+function findUniqueCaseInsensitive<T>(items: T[], selector: (item: T) => string, target: string): T | null {
+  const needle = target.trim().toLowerCase();
+  if (!needle) return null;
+  const matches = items.filter((item) => selector(item).trim().toLowerCase() === needle);
+  return matches.length === 1 ? matches[0] : (matches[0] ?? null);
 }
 
 /**
  * Backup-proof matching for structured student QR payloads:
- * 1. Exact student.id match
- * 2. Exact student.cardCode match against REG: or ID:
+ * 1. Exact (then case-insensitive) student.id match
+ * 2. Exact (then case-insensitive) student.cardCode match against REG: or ID:
  * 3. Deterministic permanent card key match against CID: or ID:
  * 4. Safe normalized full-name (+ DOB when present) recovery for legacy cards whose UUID changed across backups/re-imports
  */
 export function matchStudentByParsedQr(
   activeStudents: Student[],
   parsed: ParsedStudentQr,
+  options: { allowNameFallback?: boolean } = {},
 ): Student | null {
-  // 1. Exact ID match
+  const { allowNameFallback = true } = options;
+
+  // 1. ID match (exact then case-insensitive for CapsLock safety)
   if (parsed.id) {
-    const byId = activeStudents.find((student) => student.id === parsed.id);
+    const byId =
+      activeStudents.find((student) => student.id === parsed.id) ??
+      findUniqueCaseInsensitive(activeStudents, (student) => student.id, parsed.id);
     if (byId) return byId;
   }
 
-  // 2. Explicit cardCode / REG match
+  // 2. Explicit cardCode / REG match (exact then case-insensitive)
   if (parsed.reg) {
-    const byReg = activeStudents.find((student) => (student.cardCode ?? '').trim() === parsed.reg);
+    const byReg =
+      activeStudents.find((student) => (student.cardCode ?? '').trim() === parsed.reg) ??
+      findUniqueCaseInsensitive(activeStudents, (student) => student.cardCode ?? '', parsed.reg);
     if (byReg) return byReg;
   }
   if (parsed.id) {
-    const byCard = activeStudents.find((student) => (student.cardCode ?? '').trim() === parsed.id);
+    const byCard =
+      activeStudents.find((student) => (student.cardCode ?? '').trim() === parsed.id) ??
+      findUniqueCaseInsensitive(activeStudents, (student) => student.cardCode ?? '', parsed.id);
     if (byCard) return byCard;
   }
 
   // 3. Deterministic permanent card key (CID) — identical across every backup/device/re-import
   if (parsed.cid) {
-    const byCid = activeStudents.find((student) => deriveStableStudentCardKey(student) === parsed.cid);
+    const byCid =
+      activeStudents.find((student) => deriveStableStudentCardKey(student) === parsed.cid) ??
+      findUniqueCaseInsensitive(activeStudents, (student) => deriveStableStudentCardKey(student), parsed.cid);
     if (byCid) return byCid;
   }
   if (parsed.id) {
-    const byStableId = activeStudents.find((student) => deriveStableStudentCardKey(student) === parsed.id);
+    const byStableId =
+      activeStudents.find((student) => deriveStableStudentCardKey(student) === parsed.id) ??
+      findUniqueCaseInsensitive(activeStudents, (student) => deriveStableStudentCardKey(student), parsed.id);
     if (byStableId) return byStableId;
   }
 
   // 4. Safe fallback for already-printed legacy cards whose internal UUID changed after restoring another backup or re-importing Excel
-  const normalizedName = normalizeText(parsed.name);
-  if (normalizedName) {
-    const nameMatches = activeStudents.filter((student) => {
-      const forward = normalizeText(`${student.firstName} ${student.lastName}`);
-      const reversed = normalizeText(`${student.lastName} ${student.firstName}`);
-      return forward === normalizedName || reversed === normalizedName;
-    });
+  if (allowNameFallback) {
+    const normalizedName = normalizeText(parsed.name);
+    if (normalizedName) {
+      const nameMatches = activeStudents.filter((student) => {
+        const forward = normalizeText(`${student.firstName} ${student.lastName}`);
+        const reversed = normalizeText(`${student.lastName} ${student.firstName}`);
+        return forward === normalizedName || reversed === normalizedName;
+      });
 
-    if (parsed.dob && nameMatches.length > 0) {
-      const dobMatches = nameMatches.filter((student) => (student.dateOfBirth ?? '').trim() === parsed.dob);
-      if (dobMatches.length === 1) return dobMatches[0];
-    }
+      if (parsed.dob && nameMatches.length > 0) {
+        const dobMatches = nameMatches.filter((student) => (student.dateOfBirth ?? '').trim() === parsed.dob);
+        if (dobMatches.length === 1) return dobMatches[0];
+      }
 
-    if (nameMatches.length === 1) {
-      return nameMatches[0];
+      if (nameMatches.length === 1) {
+        return nameMatches[0];
+      }
     }
   }
 
   return null;
+}
+
+function matchDirectCode(
+  active: Student[],
+  code: string,
+  preferredField?: CanteenMatchField,
+): Student | null {
+  if (!code) return null;
+
+  if (preferredField === 'studentId') {
+    const byId =
+      active.find((student) => student.id === code) ??
+      findUniqueCaseInsensitive(active, (student) => student.id, code);
+    if (byId) return byId;
+  }
+
+  const byCardCode =
+    active.find((student) => (student.cardCode ?? '').trim() === code) ??
+    findUniqueCaseInsensitive(active, (student) => student.cardCode ?? '', code);
+  if (byCardCode) return byCardCode;
+
+  const byId =
+    active.find((student) => student.id === code) ??
+    findUniqueCaseInsensitive(active, (student) => student.id, code);
+  if (byId) return byId;
+
+  return (
+    active.find((student) => deriveStableStudentCardKey(student) === code) ??
+    findUniqueCaseInsensitive(active, (student) => deriveStableStudentCardKey(student), code)
+  );
+}
+
+function matchNormalizedCandidate(
+  active: Student[],
+  candidate: string,
+  preferredField?: CanteenMatchField,
+  allowNameFallback = true,
+): Student | null {
+  // 1. Structured EduTrack Student QR payload
+  const parsed = parseStudentQrPayload(candidate);
+  if (parsed) {
+    return matchStudentByParsedQr(active, parsed, { allowNameFallback });
+  }
+
+  // 2. National/Canteen card payload with NIN or SN
+  const nin = extractNinFromPayload(candidate);
+  if (nin) {
+    const byNin = matchDirectCode(active, nin, preferredField);
+    if (byNin) return byNin;
+  }
+
+  // 3. Direct code match honoring preferred field first, then fallback to cardCode / ID / permanent key
+  return matchDirectCode(active, candidate, preferredField);
 }
 
 export function matchStudentFromScan(
@@ -336,40 +554,28 @@ export function matchStudentFromScan(
   rawText: string,
   preferredField?: CanteenMatchField,
 ): Student | null {
-  const cleaned = rawText.replace(/[\r\n]+/g, '').trim();
-  if (!cleaned) return null;
   const active = students.filter((student) => student.deletedAt == null);
+  const rawCleaned = convertArabicDigitsToLatin(stripControlChars(rawText).trim());
+  if (!rawCleaned) return null;
 
-  // 1. Structured EduTrack Student QR payload
-  const parsed = parseStudentQrPayload(cleaned);
-  if (parsed) {
-    return matchStudentByParsedQr(active, parsed);
+  // 1. Try direct/cleaned input first (preserves hyphens and exact literals)
+  const directMatch = matchNormalizedCandidate(active, rawCleaned, preferredField, true);
+  if (directMatch) return directMatch;
+
+  // 2. Try standard normalization (AZERTY top-row digits, etc.)
+  const normalized = normalizeScannedCode(rawText, { convertAzertyDigits: true });
+  if (normalized && normalized !== rawCleaned) {
+    const normalizedMatch = matchNormalizedCandidate(active, normalized, preferredField, true);
+    if (normalizedMatch) return normalizedMatch;
   }
 
-  // 2. National/Canteen card payload with NIN:
-  const nin = extractNinFromPayload(cleaned);
-  if (nin) {
-    const byNin = active.find(
-      (student) =>
-        (student.cardCode ?? '').trim() === nin ||
-        student.id === nin ||
-        deriveStableStudentCardKey(student) === nin,
-    );
-    if (byNin) return byNin;
+  // 3. Fallback: recover hardware USB/Bluetooth scans garbled by French AZERTY or Arabic-101 OS layout
+  for (const candidate of buildKeyboardRecoveryCandidates(rawCleaned)) {
+    const recovered = matchNormalizedCandidate(active, candidate, preferredField, false);
+    if (recovered) return recovered;
   }
 
-  // 3. Direct code match honoring preferred field first, then fallback to cardCode / ID / permanent key
-  if (preferredField === 'studentId') {
-    const byId = active.find((student) => student.id === cleaned);
-    if (byId) return byId;
-  }
-  const byCardCode = active.find((student) => (student.cardCode ?? '').trim() === cleaned);
-  if (byCardCode) return byCardCode;
-
-  const byId = active.find((student) => student.id === cleaned);
-  if (byId) return byId;
-
-  return active.find((student) => deriveStableStudentCardKey(student) === cleaned) ?? null;
+  return null;
 }
 
 export async function generateStudentQrSvg(

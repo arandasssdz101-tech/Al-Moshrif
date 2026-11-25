@@ -174,35 +174,51 @@ jobs:
       - name: Sync Capacitor
         run: npx cap sync android
 
-      - name: Build debug APK
+      - name: Build Universal APK, ABI Split APKs, and Android App Bundle (.aab)
         working-directory: android
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug -PsplitAbi=true --no-daemon
+          ./gradlew bundleRelease --no-daemon
 
-      - name: Show SDK range, ABIs, permissions, version and v1/v2/v3 signatures inside the APK
+      - name: Verify APK/AAB SDK range, ABIs, permissions, version and v1/v2/v3/v4 signatures
         run: |
           APK=android/app/build/outputs/apk/debug/app-debug.apk
           BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -n 1)"
           "$BT/aapt" dump badging "$APK" | grep -E "^package:|sdkVersion|targetSdkVersion|native-code|uses-permission|uses-feature" || true
           echo "--- signer ---"
-          "$BT/apksigner" verify --verbose --print-certs "$APK" | head -n 10 || true
+          "$BT/apksigner" verify --verbose --print-certs "$APK" | head -n 15 || true
+          echo "--- outputs ---"
+          ls -lh android/app/build/outputs/apk/debug/ android/app/build/outputs/bundle/release/
 
-      - name: Rename APK
-        run: cp android/app/build/outputs/apk/debug/app-debug.apk school-admin.apk
+      - name: Stage all Android distribution packages (.apk & .aab)
+        run: |
+          mkdir -p dist-android
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist-android/school-admin.apk
+          for abi in arm64-v8a armeabi-v7a x86_64 x86; do
+            SRC="android/app/build/outputs/apk/debug/app-${abi}-debug.apk"
+            if [ -f "$SRC" ]; then
+              cp "$SRC" "dist-android/school-admin-${abi}.apk"
+            fi
+          done
+          if [ -f android/app/build/outputs/bundle/release/app-release.aab ]; then
+            cp android/app/build/outputs/bundle/release/app-release.aab dist-android/school-admin.aab
+          fi
+          ls -lh dist-android
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: school-admin-apk
-          path: school-admin.apk
+          name: school-admin-packages
+          path: dist-android/*
 
       - name: Publish to the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --cleanup-tag -y || true
-          gh release create latest school-admin.apk \
+          gh release create latest dist-android/* \
             --title "School Admin (latest)" \
-            --notes "Build #${{ github.run_number }} - version 1.0.${{ github.run_number }}" \
+            --notes "Build #${{ github.run_number }} - version 1.0.${{ github.run_number }} (Universal APK, ABI Split APKs, & AAB)" \
             --target "${{ github.sha }}"
