@@ -1,6 +1,12 @@
 node_modules/
 build/
 dist/
+dev-dist/
+dist-android/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/src/main/assets/public/
 coverage/
 .DS_Store
 *.log
